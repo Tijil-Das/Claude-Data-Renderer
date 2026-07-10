@@ -1,0 +1,1130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Claude Export Viewer</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<style>
+:root{
+  --bg-main: #FAF9F5;
+  --bg-sidebar: #F0EEE6;
+  --bg-sidebar-hover: #E8E5DB;
+  --bg-sidebar-active: #E3DFD1;
+  --bg-user-bubble: #E8E5DB;
+  --bg-input: #FFFFFF;
+  --border: #E5E2D9;
+  --text-primary: #2D2A26;
+  --text-secondary: #6B6759;
+  --text-tertiary: #9C9788;
+  --accent: #C15F3C;
+  --accent-hover: #A94F30;
+  --accent-soft: #F3E2D8;
+  --code-bg: #2D2A26;
+  --code-text: #F5F1E8;
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 18px;
+  --sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Inter', Helvetica, Arial, sans-serif;
+  --mono: 'SF Mono', 'JetBrains Mono', Menlo, Consolas, monospace;
+}
+*{box-sizing:border-box;}
+html,body{height:100%;}
+body{margin:0;background:var(--bg-main);color:var(--text-primary);font-family:var(--sans);font-size:15px;-webkit-font-smoothing:antialiased;}
+::selection{background:var(--accent-soft);}
+::-webkit-scrollbar{width:8px; height:8px;}
+::-webkit-scrollbar-track{background:transparent;}
+::-webkit-scrollbar-thumb{background:#D4D0C2; border-radius:8px;}
+::-webkit-scrollbar-thumb:hover{background:#C2BDAB;}
+a{color:var(--accent);}
+button{font-family:inherit;}
+
+#loadScreen{position:fixed; inset:0; display:flex; align-items:center; justify-content:center; background:var(--bg-main); z-index:100; padding:24px;}
+.load-card{ max-width:520px; width:100%; text-align:center; }
+.load-mark{ width:56px; height:56px; margin:0 auto 24px; background:var(--accent); border-radius:16px; display:flex; align-items:center; justify-content:center; }
+.load-mark svg{width:30px; height:30px; color:#fff;}
+.load-card h1{ font-size:26px; font-weight:600; margin:0 0 10px; letter-spacing:-0.01em; }
+.load-sub{ font-size:15px; line-height:1.6; color:var(--text-secondary); margin:0 0 30px; }
+.load-sub code{background:var(--bg-sidebar); padding:2px 6px; border-radius:4px; font-family:var(--mono); font-size:0.88em;}
+.dropzone{ border:1.5px dashed var(--border); border-radius:var(--radius-md); background:var(--bg-input); padding:36px 24px; text-align:center; cursor:pointer; transition:border-color .15s ease, background .15s ease; }
+.dropzone:hover, .dropzone.dragover{ border-color:var(--accent); background:var(--accent-soft); }
+.dz-icon{width:32px; height:32px; margin:0 auto 14px; color:var(--text-tertiary);}
+.dropzone:hover .dz-icon{color:var(--accent);}
+.dz-title{font-weight:600; font-size:15.5px; margin-bottom:6px; color:var(--text-primary);}
+.dz-hint{font-size:12.5px; color:var(--text-tertiary);}
+.dz-hint code{background:var(--bg-sidebar); padding:1px 5px; border-radius:4px; font-family:var(--mono); font-size:0.95em;}
+#fileInput{display:none;}
+.load-progress{ margin-top:18px; display:none; font-size:13px; color:var(--text-secondary); }
+.load-progress.show{display:block;}
+.load-progress .bar{ height:3px; background:var(--bg-sidebar); border-radius:2px; overflow:hidden; margin-top:8px; }
+.load-progress .bar > div{ height:100%; width:0%; background:var(--accent); transition:width .2s ease; }
+.load-error{ margin-top:16px; padding:12px 14px; background:#FBEAE2; border:1px solid #E8C3AE; border-radius:var(--radius-sm); font-size:13.5px; color:#8A3A1C; text-align:left; display:none; }
+.load-error.show{display:block;}
+.load-priv{ margin-top:22px; display:flex; align-items:center; justify-content:center; gap:6px; font-size:12px; color:var(--text-tertiary); }
+.load-priv svg{width:12px; height:12px;}
+details.howto{margin-top:20px; font-size:13px; text-align:left;}
+details.howto summary{ cursor:pointer; color:var(--accent); font-weight:500; outline:none; list-style:none; }
+details.howto summary::-webkit-details-marker{display:none;}
+details.howto[open] summary{margin-bottom:10px;}
+details.howto ol{margin:0; padding-left:20px; color:var(--text-secondary); line-height:1.8;}
+details.howto code{background:var(--bg-sidebar); padding:1px 5px; border-radius:4px; font-family:var(--mono); font-size:0.9em;}
+
+#app{display:none; height:100vh; width:100vw; overflow:hidden;}
+#app.show{display:flex;}
+
+#sidebar{ width:280px; min-width:280px; background:var(--bg-sidebar); display:flex; flex-direction:column; height:100%; border-right:1px solid var(--border); }
+.sb-top{ padding:16px 12px 8px; flex-shrink:0; }
+.sb-logo-row{ display:flex; align-items:center; gap:8px; padding:6px 8px 14px; }
+.sb-logo{ width:24px; height:24px; background:var(--accent); border-radius:7px; display:flex; align-items:center; justify-content:center; flex-shrink:0; }
+.sb-logo svg{width:14px; height:14px; color:#fff;}
+.sb-logo-text{font-weight:600; font-size:15px; color:var(--text-primary);}
+.sb-newchat{ display:flex; align-items:center; gap:8px; width:100%; padding:9px 12px; background:var(--accent); color:#fff; border:none; border-radius:var(--radius-sm); font-size:13.5px; font-weight:500; cursor:pointer; margin-bottom:10px; transition:background .12s; }
+.sb-newchat:hover{background:var(--accent-hover);}
+.sb-newchat svg{width:15px; height:15px;}
+.sb-search-wrap{ position:relative; margin-bottom:6px; }
+.sb-search-wrap svg{ position:absolute; left:10px; top:50%; transform:translateY(-50%); width:14px; height:14px; color:var(--text-tertiary); pointer-events:none; }
+.sb-search-wrap input{ width:100%; background:var(--bg-input); border:1px solid var(--border); color:var(--text-primary); padding:8px 10px 8px 30px; border-radius:var(--radius-sm); font-family:inherit; font-size:13.5px; outline:none; transition:border-color .15s; }
+.sb-search-wrap input::placeholder{color:var(--text-tertiary);}
+.sb-search-wrap input:focus{border-color:var(--accent);}
+.sb-filters{ display:flex; gap:5px; padding:4px 4px 8px; }
+.sb-filters button{ flex:1; background:transparent; border:1px solid transparent; color:var(--text-secondary); font-size:11.5px; font-weight:500; padding:5px 4px; border-radius:6px; cursor:pointer; transition:all .12s; }
+.sb-filters button.active{background:var(--bg-sidebar-active); color:var(--text-primary);}
+.sb-filters button:hover:not(.active){background:var(--bg-sidebar-hover);}
+.sb-section-label{ padding:14px 16px 6px; font-size:11px; font-weight:600; color:var(--text-tertiary); text-transform:uppercase; letter-spacing:0.04em; }
+#convList{ flex:1; overflow-y:auto; padding:0 8px 16px; }
+.conv-item{ padding:9px 10px; cursor:pointer; border-radius:var(--radius-sm); transition:background .1s; position:relative; margin-bottom:1px; }
+.conv-item:hover{background:var(--bg-sidebar-hover);}
+.conv-item.active{background:var(--bg-sidebar-active);}
+.conv-item .ci-row{ display:flex; align-items:center; justify-content:space-between; gap:6px; }
+.conv-item .ci-title{ font-size:13.5px; font-weight:450; line-height:1.4; color:var(--text-primary); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1; min-width:0; }
+.ci-star{ width:13px; height:13px; cursor:pointer; opacity:0; flex-shrink:0; color:var(--accent); transition:opacity .12s; }
+.conv-item:hover .ci-star, .ci-star.starred{opacity:1;}
+.sb-empty{ padding:30px 16px; text-align:center; color:var(--text-tertiary); font-size:13px; }
+.sb-bottom{ border-top:1px solid var(--border); padding:10px 12px; flex-shrink:0; }
+.sb-user-row{ display:flex; align-items:center; gap:9px; padding:8px; border-radius:var(--radius-sm); cursor:pointer; }
+.sb-user-row:hover{background:var(--bg-sidebar-hover);}
+.sb-avatar{ width:26px; height:26px; border-radius:50%; background:var(--accent); color:#fff; display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:600; flex-shrink:0; }
+.sb-user-label{font-size:12.5px; color:var(--text-secondary); flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+.sb-user-label b{color:var(--text-primary); font-weight:500; display:block; font-size:13px;}
+
+#main{ flex:1; display:flex; flex-direction:column; height:100%; min-width:0; background:var(--bg-main); }
+#topbar{ flex-shrink:0; height:52px; padding:0 20px; border-bottom:1px solid transparent; display:flex; align-items:center; justify-content:space-between; gap:16px; }
+#topbar.scrolled{ border-bottom-color:var(--border); }
+#tbLeft{display:flex; align-items:center; gap:10px; min-width:0; flex:1;}
+#sbToggle{ display:none; align-items:center; justify-content:center; width:32px; height:32px; border-radius:7px; border:none; background:none; cursor:pointer; flex-shrink:0; color:var(--text-secondary); }
+#sbToggle:hover{background:var(--bg-sidebar-hover);}
+#sbToggle svg{width:18px; height:18px;}
+#tbTitle{ font-size:14.5px; font-weight:500; color:var(--text-primary); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+#tbSub{ font-size:12px; color:var(--text-tertiary); }
+.tb-actions{display:flex; gap:6px; flex-shrink:0; align-items:center;}
+.tb-icon-btn{ display:flex; align-items:center; justify-content:center; gap:6px; background:transparent; border:1px solid transparent; color:var(--text-secondary); width:32px; height:32px; border-radius:7px; cursor:pointer; transition:all .12s; }
+.tb-icon-btn:hover{background:var(--bg-sidebar-hover); color:var(--text-primary);}
+.tb-icon-btn svg{width:16px; height:16px;}
+.tb-btn-text{ display:flex; align-items:center; gap:6px; background:var(--bg-input); border:1px solid var(--border); color:var(--text-primary); padding:7px 13px; border-radius:20px; cursor:pointer; font-size:13px; font-weight:500; transition:all .12s; }
+.tb-btn-text:hover{border-color:var(--text-tertiary);}
+.tb-btn-text svg{width:14px; height:14px;}
+#transcriptWrap{ flex:1; overflow-y:auto; position:relative; }
+#transcript{ max-width:768px; margin:0 auto; padding:24px 24px 200px; }
+.welcome{ height:100%; display:flex; align-items:center; justify-content:center; flex-direction:column; text-align:center; color:var(--text-secondary); padding:40px; }
+.welcome-logo{ width:60px; height:60px; background:var(--accent); border-radius:18px; display:flex; align-items:center; justify-content:center; margin-bottom:22px; }
+.welcome-logo svg{width:32px; height:32px; color:#fff;}
+.welcome h2{font-size:22px; color:var(--text-primary); font-weight:600; margin:0 0 8px; letter-spacing:-0.01em;}
+.welcome p{font-size:14.5px; max-width:380px; line-height:1.6; margin:0; color:var(--text-secondary);}
+
+.turn{ margin-bottom:28px; display:flex; }
+.turn.human{ justify-content:flex-end; }
+.turn.assistant{ justify-content:flex-start; }
+.turn-inner{ max-width:100%; }
+.turn.human .turn-inner{ background:var(--bg-user-bubble); border-radius:var(--radius-lg); padding:12px 18px; max-width:75%; }
+.turn.assistant .turn-inner{ display:flex; gap:14px; width:100%; max-width:100%; }
+.claude-avatar{ width:28px; height:28px; border-radius:8px; flex-shrink:0; background:var(--accent); display:flex; align-items:center; justify-content:center; margin-top:2px; }
+.claude-avatar svg{width:16px; height:16px; color:#fff;}
+.assistant-body{ flex:1; min-width:0; }
+.turn-time{ font-size:11px; color:var(--text-tertiary); margin-bottom:4px; }
+.turn.human .turn-time{ text-align:right; margin-bottom:4px; }
+.turn-content{ font-size:15.5px; line-height:1.65; color:var(--text-primary); }
+.turn-content > *:first-child{margin-top:0;}
+.turn-content > *:last-child{margin-bottom:0;}
+.turn-content p{margin:0 0 14px;}
+.turn-content h1,.turn-content h2,.turn-content h3{ font-weight:600; margin:20px 0 10px; line-height:1.3; }
+.turn-content h1{font-size:21px;} .turn-content h2{font-size:18.5px;} .turn-content h3{font-size:16.5px;}
+.turn-content ul,.turn-content ol{margin:0 0 14px; padding-left:22px;}
+.turn-content li{margin-bottom:5px;}
+.turn-content li::marker{color:var(--text-secondary);}
+.turn-content blockquote{ border-left:3px solid var(--border); margin:0 0 14px; padding:2px 0 2px 14px; color:var(--text-secondary); }
+.turn-content strong{font-weight:600;}
+.turn-content code{ font-family:var(--mono); font-size:0.86em; background:var(--bg-sidebar); padding:1px 6px; border-radius:4px; }
+.turn.human .turn-content code{ background:rgba(255,255,255,0.5); }
+.turn-content pre{ background:var(--code-bg); color:var(--code-text); padding:16px 18px; border-radius:var(--radius-md); overflow-x:auto; margin:0 0 14px; font-size:13px; line-height:1.55; }
+.turn-content pre code{background:none; padding:0; color:inherit; font-size:1em;}
+.turn-content table{border-collapse:collapse; width:100%; margin:0 0 14px; font-size:14px;}
+.turn-content th,.turn-content td{border:1px solid var(--border); padding:7px 10px; text-align:left;}
+.turn-content th{background:var(--bg-sidebar); font-weight:600;}
+.turn-content img{max-width:100%; border-radius:var(--radius-md); margin:6px 0;}
+.turn-content hr{border:none; border-top:1px solid var(--border); margin:20px 0;}
+.code-block-wrap{position:relative;}
+.code-block-head{ display:flex; align-items:center; justify-content:space-between; background:#26231F; color:var(--text-tertiary); padding:8px 14px; border-radius:var(--radius-md) var(--radius-md) 0 0; font-family:var(--mono); font-size:11.5px; margin-bottom:-1px; }
+.code-block-head + pre{ border-radius:0 0 var(--radius-md) var(--radius-md); margin-top:0;}
+.code-copy-btn{ background:none; border:none; color:var(--text-tertiary); font-family:inherit; font-size:11.5px; cursor:pointer; display:flex; align-items:center; gap:4px; }
+.code-copy-btn:hover{color:#fff;}
+.code-copy-btn svg{width:12px; height:12px;}
+.attach-chip{ display:inline-flex; align-items:center; gap:8px; background:var(--bg-sidebar); border:1px solid var(--border); padding:8px 13px; border-radius:var(--radius-md); font-size:13px; margin:4px 8px 10px 0; }
+.attach-chip svg{width:15px; height:15px; color:var(--text-secondary); flex-shrink:0;}
+.artifact-card{ border:1px solid var(--border); border-radius:var(--radius-md); margin:8px 0 16px; overflow:hidden; background:var(--bg-input); }
+.artifact-head{ display:flex; align-items:center; gap:9px; padding:11px 15px; background:var(--bg-sidebar); border-bottom:1px solid var(--border); font-size:13.5px; color:var(--text-primary); font-weight:500; }
+.artifact-head svg{width:16px; height:16px; color:var(--accent); flex-shrink:0;}
+.artifact-head .at-type{color:var(--text-tertiary); font-weight:400; margin-left:auto; font-size:11.5px;}
+.artifact-body pre{margin:0; border-radius:0; background:var(--code-bg);}
+.artifact-body.text-artifact{padding:15px 17px; font-size:14.5px; line-height:1.6; white-space:pre-wrap;}
+.thinking-block{ border:1px solid var(--border); background:var(--bg-sidebar); border-radius:var(--radius-md); padding:11px 15px; margin:6px 0 16px; }
+.thinking-head{ display:flex; align-items:center; gap:7px; cursor:pointer; font-size:13px; font-weight:500; color:var(--text-secondary); user-select:none; }
+.thinking-head svg{width:13px; height:13px; transition:transform .15s;}
+.thinking-block.open .thinking-head svg{transform:rotate(90deg);}
+.thinking-text{ display:none; margin-top:10px; font-size:13.5px; line-height:1.6; color:var(--text-secondary); white-space:pre-wrap; padding-top:10px; border-top:1px solid var(--border); }
+.thinking-block.open .thinking-text{display:block;}
+.tool-block{ border:1px solid var(--border); border-radius:var(--radius-md); padding:10px 15px; margin:6px 0 16px; font-family:var(--mono); font-size:12px; color:var(--text-secondary); background:var(--bg-sidebar); }
+.tool-block .tb-name{color:var(--accent); font-weight:600;}
+mark.hl{background:#FCE4A8; border-radius:2px; padding:0 1px;}
+
+#findBar{ position:fixed; top:14px; right:14px; background:var(--text-primary); color:#fff; border-radius:var(--radius-md); box-shadow:0 8px 24px rgba(0,0,0,0.18); display:none; align-items:center; gap:8px; padding:8px 10px; z-index:50; font-size:13px; }
+#findBar.show{display:flex;}
+#findBar input{ background:rgba(255,255,255,0.12); border:1px solid rgba(255,255,255,0.2); color:#fff; padding:6px 9px; border-radius:6px; outline:none; width:200px; font-family:inherit; font-size:13px; }
+#findBar input::placeholder{color:rgba(255,255,255,0.5);}
+#findBar button{background:none; border:none; color:rgba(255,255,255,0.6); cursor:pointer; padding:4px; border-radius:5px;}
+#findBar button:hover{color:#fff; background:rgba(255,255,255,0.1);}
+#findBar .fcount{color:rgba(255,255,255,0.55); min-width:46px; font-size:12px;}
+
+.menu-pop{ position:absolute; top:calc(100% + 6px); right:0; background:var(--bg-input); border:1px solid var(--border); border-radius:var(--radius-md); box-shadow:0 8px 24px rgba(0,0,0,0.12); min-width:200px; z-index:40; display:none; overflow:hidden; padding:5px; }
+.menu-pop.show{display:block;}
+.menu-pop button{ display:flex; align-items:center; gap:10px; width:100%; background:none; border:none; text-align:left; padding:9px 11px; font-size:13.5px; color:var(--text-primary); cursor:pointer; border-radius:7px; }
+.menu-pop button:hover{background:var(--bg-sidebar-hover);}
+.menu-pop button svg{width:15px; height:15px; color:var(--text-secondary); flex-shrink:0;}
+.menu-pop hr{border:none; border-top:1px solid var(--border); margin:5px 3px;}
+.tb-wrap{position:relative;}
+
+#toast{ position:fixed; bottom:22px; left:50%; transform:translateX(-50%) translateY(20px); background:var(--text-primary); color:#fff; padding:10px 18px; border-radius:20px; font-size:13px; opacity:0; pointer-events:none; transition:all .25s ease; z-index:200; box-shadow:0 8px 24px rgba(0,0,0,0.18); }
+#toast.show{opacity:1; transform:translateX(-50%) translateY(0);}
+
+@media (max-width:880px){
+  #sidebar{position:fixed; left:0; top:0; bottom:0; z-index:60; transform:translateX(-100%); transition:transform .2s ease; box-shadow:0 0 30px rgba(0,0,0,0.15);}
+  #sidebar.open{transform:translateX(0);}
+  #transcript{padding:16px 16px 160px;}
+  #topbar{padding:0 12px;}
+  #sbToggle{display:flex;}
+  .turn.human .turn-inner{max-width:88%;}
+  .tb-btn-text .btxt{display:none;}
+}
+#sbOverlay{display:none; position:fixed; inset:0; background:rgba(0,0,0,0.25); z-index:55;}
+#sbOverlay.show{display:block;}
+@media print{
+  #sidebar, #topbar, #findBar, #toast{display:none !important;}
+  #transcriptWrap{overflow:visible;}
+  body{background:#fff;}
+}
+</style>
+</head>
+<body>
+
+<div id="loadScreen">
+  <div class="load-card">
+    <div class="load-mark">
+      <svg viewBox="0 0 24 24" fill="none"><path d="M12 3L4 20h4l1.5-3.5h5L16 20h4L12 3z" fill="currentColor"/></svg>
+    </div>
+    <h1>Open your Claude export</h1>
+    <p class="load-sub">Drop the file you got from <b>Settings → Privacy → Export data</b>. It's rendered entirely in your browser — nothing is uploaded.</p>
+
+    <div class="dropzone" id="dropzone">
+      <svg class="dz-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M12 3v12m0-12l-4 4m4-4l4 4M4 17v2a2 2 0 002 2h12a2 2 0 002-2v-2"/></svg>
+      <div class="dz-title">Drop your export here, or click to browse</div>
+      <div class="dz-hint">Accepts <code>.zip</code> · <code>.dms</code> · <code>conversations.json</code></div>
+      <input type="file" id="fileInput" accept=".zip,.dms,.json">
+    </div>
+
+    <div class="load-progress" id="loadProgress">
+      <span id="loadProgressText">Reading archive…</span>
+      <div class="bar"><div id="loadProgressBar"></div></div>
+    </div>
+
+    <div class="load-error" id="loadError"></div>
+
+    <div class="load-priv">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="10" width="16" height="10" rx="2"/><path d="M8 10V7a4 4 0 118 0v3"/></svg>
+      Parsed locally — your data never leaves this device
+    </div>
+
+    <details class="howto">
+      <summary>Where do I get an export?</summary>
+      <ol>
+        <li>In Claude, click your initials (bottom left) → <b>Settings</b></li>
+        <li>Go to the <b>Privacy</b> section</li>
+        <li>Click <b>Export data</b> and confirm</li>
+        <li>Anthropic emails you a download link within a few minutes</li>
+        <li>Download the archive and drop it above — no need to unzip it first</li>
+      </ol>
+    </details>
+  </div>
+</div>
+
+<div id="sbOverlay"></div>
+<div id="app">
+  <aside id="sidebar">
+    <div class="sb-top">
+      <div class="sb-logo-row">
+        <div class="sb-logo"><svg viewBox="0 0 24 24" fill="none"><path d="M12 3L4 20h4l1.5-3.5h5L16 20h4L12 3z" fill="currentColor"/></svg></div>
+        <div class="sb-logo-text">Claude</div>
+      </div>
+      <button class="sb-newchat" id="loadNewBtn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
+        Open another export
+      </button>
+      <div class="sb-search-wrap">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.35-4.35"/></svg>
+        <input type="text" id="searchInput" placeholder="Search your chats…">
+      </div>
+      <div class="sb-filters">
+        <button data-sort="recent" class="active">Recent</button>
+        <button data-sort="oldest">Oldest</button>
+        <button data-sort="az">A–Z</button>
+        <button data-sort="starred">Starred</button>
+      </div>
+    </div>
+    <div class="sb-section-label" id="sectionLabel">Chats</div>
+    <div id="convList"></div>
+    <div class="sb-bottom">
+      <div class="sb-user-row">
+        <div class="sb-avatar" id="sbAvatarInitial">U</div>
+        <div class="sb-user-label"><b id="sbUserName">Your archive</b><span id="sbUserSub">Local export viewer</span></div>
+      </div>
+    </div>
+  </aside>
+
+  <main id="main">
+    <div id="topbar">
+      <div id="tbLeft">
+        <button id="sbToggle"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button>
+        <div style="min-width:0;">
+          <div id="tbTitle">Select a chat</div>
+          <div id="tbSub"></div>
+        </div>
+      </div>
+      <div class="tb-actions">
+        <button class="tb-icon-btn" id="findBtn" title="Find in chat"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.35-4.35"/></svg></button>
+        <div class="tb-wrap">
+          <button class="tb-btn-text" id="exportBtn">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0l-4-4m4 4l4-4M5 21h14"/></svg>
+            <span class="btxt">Export</span>
+          </button>
+          <div class="menu-pop" id="exportMenu">
+            <button data-exp="md"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6"/></svg>Markdown (.md)</button>
+            <button data-exp="txt"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6"/></svg>Plain text (.txt)</button>
+            <button data-exp="json"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6"/></svg>Raw JSON</button>
+            <button data-exp="html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6"/></svg>Standalone HTML</button>
+            <hr>
+            <button id="printBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9V2h12v7M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2"/><path d="M6 14h12v8H6z"/></svg>Print / Save as PDF</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="transcriptWrap">
+      <div id="transcript">
+        <div class="welcome">
+          <div class="welcome-logo"><svg viewBox="0 0 24 24" fill="none"><path d="M12 3L4 20h4l1.5-3.5h5L16 20h4L12 3z" fill="currentColor"/></svg></div>
+          <h2>Your conversations, restored</h2>
+          <p>Pick a chat on the left to read it. Everything looks and works the way it did in Claude — search, code blocks, artifacts and all.</p>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<div id="findBar">
+  <input type="text" id="findInput" placeholder="Find in chat…">
+  <span class="fcount" id="findCount"></span>
+  <button id="findPrev" title="Previous">↑</button>
+  <button id="findNext" title="Next">↓</button>
+  <button id="findClose" title="Close">✕</button>
+</div>
+
+<div id="toast"></div>
+
+<script>
+(function(){
+"use strict";
+
+let CONVERSATIONS = [];
+let ACTIVE_ID = null;
+let SORT_MODE = 'recent';
+let SEARCH_Q = '';
+let STARRED = new Set();
+let FIND_MATCHES = [];
+let FIND_IDX = -1;
+
+function $(sel,ctx){return (ctx||document).querySelector(sel);}
+function $all(sel,ctx){return Array.from((ctx||document).querySelectorAll(sel));}
+function esc(s){
+  return String(s==null?'':s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+function toast(msg){
+  const t = $('#toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(toast._t);
+  toast._t = setTimeout(()=>t.classList.remove('show'), 2200);
+}
+function fmtDate(iso){
+  if(!iso) return '';
+  const d = new Date(iso);
+  if(isNaN(d)) return '';
+  return d.toLocaleDateString(undefined,{year:'numeric',month:'short',day:'numeric'});
+}
+function fmtDateTime(iso){
+  if(!iso) return '';
+  const d = new Date(iso);
+  if(isNaN(d)) return '';
+  return d.toLocaleString(undefined,{year:'numeric',month:'short',day:'numeric',hour:'numeric',minute:'2-digit'});
+}
+function fmtTime(iso){
+  if(!iso) return '';
+  const d = new Date(iso);
+  if(isNaN(d)) return '';
+  return d.toLocaleTimeString(undefined,{hour:'numeric',minute:'2-digit'});
+}
+function download(filename, content, mime){
+  const blob = new Blob([content], {type: mime || 'text/plain'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  setTimeout(()=>URL.revokeObjectURL(url), 2000);
+}
+
+function renderMarkdown(src){
+  if(src == null) return '';
+  src = String(src);
+
+  const codeBlocks = [];
+  src = src.replace(/```([a-zA-Z0-9_+-]*)\n?([\s\S]*?)```/g, (m, lang, code)=>{
+    const idx = codeBlocks.length;
+    codeBlocks.push({lang: (lang||'').trim(), code: code.replace(/\n$/,'')});
+    return `\u0000CODEBLOCK${idx}\u0000`;
+  });
+
+  const inlineCodes = [];
+  src = src.replace(/`([^`\n]+)`/g, (m, code)=>{
+    const idx = inlineCodes.length;
+    inlineCodes.push(code);
+    return `\u0001INLINECODE${idx}\u0001`;
+  });
+
+  const lines = src.split('\n');
+  let html = '';
+  let i = 0;
+  let inUl = false, inOl = false, inBq = false;
+
+  function closeLists(){
+    if(inUl){ html += '</ul>'; inUl=false; }
+    if(inOl){ html += '</ol>'; inOl=false; }
+    if(inBq){ html += '</blockquote>'; inBq=false; }
+  }
+
+  function inlineFmt(s){
+    s = esc(s);
+    s = s.replace(/\u0001INLINECODE(\d+)\u0001/g, (m, idx)=>`<code>${esc(inlineCodes[idx])}</code>`);
+    s = s.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+    s = s.replace(/\*\*\*([^*]+)\*\*\*/g, '<strong><em>$1</em></strong>');
+    s = s.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+    s = s.replace(/(^|[^*])\*([^*\n]+)\*(?!\*)/g, '$1<em>$2</em>');
+    s = s.replace(/__([^_]+)__/g, '<strong>$1</strong>');
+    s = s.replace(/~~([^~]+)~~/g, '<del>$1</del>');
+    return s;
+  }
+
+  while(i < lines.length){
+    let line = lines[i];
+
+    if(/^\s*\|.*\|\s*$/.test(line) && lines[i+1] && /^\s*\|?[\s:-]+\|[\s:|-]*$/.test(lines[i+1])){
+      closeLists();
+      const headerCells = line.trim().replace(/^\||\|$/g,'').split('|').map(c=>c.trim());
+      let tbl = '<table><thead><tr>' + headerCells.map(c=>`<th>${inlineFmt(c)}</th>`).join('') + '</tr></thead><tbody>';
+      i += 2;
+      while(i < lines.length && /^\s*\|.*\|\s*$/.test(lines[i])){
+        const rowCells = lines[i].trim().replace(/^\||\|$/g,'').split('|').map(c=>c.trim());
+        tbl += '<tr>' + rowCells.map(c=>`<td>${inlineFmt(c)}</td>`).join('') + '</tr>';
+        i++;
+      }
+      tbl += '</tbody></table>';
+      html += tbl;
+      continue;
+    }
+
+    if(/^\s*(-{3,}|\*{3,}|_{3,})\s*$/.test(line)){
+      closeLists(); html += '<hr>'; i++; continue;
+    }
+
+    let mH = line.match(/^(#{1,6})\s+(.*)$/);
+    if(mH){
+      closeLists();
+      const lvl = Math.min(mH[1].length, 3);
+      html += `<h${lvl}>${inlineFmt(mH[2])}</h${lvl}>`;
+      i++; continue;
+    }
+
+    if(/^\s*>\s?/.test(line)){
+      if(!inBq){ closeLists(); html += '<blockquote>'; inBq=true; }
+      html += `<p>${inlineFmt(line.replace(/^\s*>\s?/,''))}</p>`;
+      i++; continue;
+    } else if(inBq){ html += '</blockquote>'; inBq=false; }
+
+    let mUl = line.match(/^\s*[-*+]\s+(.*)$/);
+    if(mUl){
+      if(inOl){ html+='</ol>'; inOl=false; }
+      if(!inUl){ html += '<ul>'; inUl = true; }
+      html += `<li>${inlineFmt(mUl[1])}</li>`;
+      i++; continue;
+    }
+
+    let mOl = line.match(/^\s*\d+[.)]\s+(.*)$/);
+    if(mOl){
+      if(inUl){ html+='</ul>'; inUl=false; }
+      if(!inOl){ html += '<ol>'; inOl = true; }
+      html += `<li>${inlineFmt(mOl[1])}</li>`;
+      i++; continue;
+    }
+
+    if(/^\s*$/.test(line)){
+      closeLists();
+      i++; continue;
+    }
+
+    let mCb = line.match(/^\u0000CODEBLOCK(\d+)\u0000$/);
+    if(mCb){
+      closeLists();
+      const cb = codeBlocks[parseInt(mCb[1],10)];
+      const langLabel = cb.lang || 'text';
+      html += `<div class="code-block-wrap"><div class="code-block-head"><span>${esc(langLabel)}</span><button class="code-copy-btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15V5a2 2 0 012-2h10"/></svg>Copy</button></div><pre><code class="lang-${esc(cb.lang)}">${esc(cb.code)}</code></pre></div>`;
+      i++; continue;
+    }
+
+    closeLists();
+    let para = [line];
+    i++;
+    while(i < lines.length && !/^\s*$/.test(lines[i]) &&
+          !/^(#{1,6})\s+/.test(lines[i]) &&
+          !/^\s*[-*+]\s+/.test(lines[i]) &&
+          !/^\s*\d+[.)]\s+/.test(lines[i]) &&
+          !/^\s*>\s?/.test(lines[i]) &&
+          !/^\u0000CODEBLOCK\d+\u0000$/.test(lines[i]) &&
+          !/^\s*(-{3,}|\*{3,}|_{3,})\s*$/.test(lines[i])
+    ){
+      para.push(lines[i]);
+      i++;
+    }
+    html += `<p>${para.map(inlineFmt).join('<br>')}</p>`;
+  }
+  closeLists();
+  return html;
+}
+
+function normalizeConversation(raw){
+  const id = raw.uuid || raw.id || raw.conversation_id || cryptoRandomId();
+  const name = raw.name || raw.title || 'Untitled conversation';
+  const created_at = raw.created_at || raw.createdAt || raw.create_time || null;
+  const updated_at = raw.updated_at || raw.updatedAt || raw.update_time || created_at;
+
+  let rawMsgs = raw.chat_messages || raw.messages || raw.mapping_list || [];
+
+  if(!Array.isArray(rawMsgs) && raw.mapping && typeof raw.mapping === 'object'){
+    rawMsgs = Object.values(raw.mapping)
+      .filter(n => n && n.message)
+      .sort((a,b)=> (a.message.create_time||0) - (b.message.create_time||0))
+      .map(n => n.message);
+  }
+
+  let model = raw.model || null;
+  const messages = (rawMsgs || []).map(m => normalizeMessage(m)).filter(Boolean);
+  if(!model){ for(const m of messages){ if(m.model){ model = m.model; break; } } }
+
+  return { id, name, created_at, updated_at, model, messages };
+}
+
+function normalizeMessage(m){
+  if(!m) return null;
+  const sender = normalizeSender(m.sender || m.role || (m.author && m.author.role));
+  const created_at = m.created_at || m.createdAt || m.create_time || null;
+
+  let textParts = [];
+  let attachments = [];
+  let artifacts = [];
+  let thinking = null;
+  let toolCalls = [];
+
+  if(typeof m.text === 'string' && m.text.trim()){
+    textParts.push(m.text);
+  }
+
+  if(Array.isArray(m.content)){
+    for(const block of m.content){
+      if(!block) continue;
+      const type = block.type;
+      if(type === 'text' && block.text){
+        textParts.push(block.text);
+      } else if(type === 'thinking' || type === 'reasoning'){
+        thinking = (thinking?thinking+'\n\n':'') + (block.thinking || block.text || '');
+      } else if(type === 'tool_use' || type === 'server_tool_use'){
+        toolCalls.push({name: block.name || 'tool', input: block.input || block.tool_input || null, kind:'call'});
+      } else if(type === 'tool_result'){
+        toolCalls.push({name: block.name || 'result', input: block.content || block.output || null, kind:'result'});
+      } else if(type === 'artifact' || block.artifact){
+        const art = block.artifact || block;
+        artifacts.push({
+          title: art.title || art.name || 'Artifact',
+          language: art.language || art.type || '',
+          content: art.content || art.text || ''
+        });
+      } else if(type === 'image'){
+        attachments.push({type:'image', name: block.name || 'image', url: block.url || null});
+      } else if(typeof block === 'string'){
+        textParts.push(block);
+      }
+    }
+  }
+
+  const rawAttach = m.attachments || m.files || [];
+  if(Array.isArray(rawAttach)){
+    for(const a of rawAttach){
+      if(!a) continue;
+      attachments.push({
+        type: a.file_type || a.type || 'file',
+        name: a.file_name || a.name || 'attachment',
+        size: a.file_size || a.size || null,
+        extracted: a.extracted_content || null
+      });
+    }
+  }
+
+  if(Array.isArray(m.artifacts)){
+    for(const art of m.artifacts){
+      artifacts.push({
+        title: art.title || art.name || 'Artifact',
+        language: art.language || art.type || '',
+        content: art.content || art.text || ''
+      });
+    }
+  }
+
+  const text = textParts.join('\n\n').trim();
+
+  if(!text && attachments.length === 0 && artifacts.length === 0 && !thinking && toolCalls.length === 0){
+    return null;
+  }
+
+  return { sender, created_at, text, attachments, artifacts, thinking, toolCalls, model: m.model || null };
+}
+
+function normalizeSender(s){
+  if(!s) return 'assistant';
+  s = String(s).toLowerCase();
+  if(s === 'human' || s === 'user') return 'human';
+  return 'assistant';
+}
+
+function cryptoRandomId(){
+  return 'id-' + Math.random().toString(36).slice(2) + Date.now().toString(36);
+}
+
+const dropzone = $('#dropzone');
+const fileInput = $('#fileInput');
+const loadError = $('#loadError');
+const loadProgress = $('#loadProgress');
+const loadProgressText = $('#loadProgressText');
+const loadProgressBar = $('#loadProgressBar');
+
+dropzone.addEventListener('click', ()=> fileInput.click());
+dropzone.addEventListener('dragover', e=>{ e.preventDefault(); dropzone.classList.add('dragover'); });
+dropzone.addEventListener('dragleave', ()=> dropzone.classList.remove('dragover'));
+dropzone.addEventListener('drop', e=>{
+  e.preventDefault(); dropzone.classList.remove('dragover');
+  if(e.dataTransfer.files && e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]);
+});
+fileInput.addEventListener('change', e=>{
+  if(e.target.files && e.target.files[0]) handleFile(e.target.files[0]);
+});
+
+function showError(msg){
+  loadError.textContent = msg;
+  loadError.classList.add('show');
+  loadProgress.classList.remove('show');
+}
+function hideError(){ loadError.classList.remove('show'); }
+function showProgress(text, pct){
+  loadProgress.classList.add('show');
+  loadProgressText.textContent = text;
+  loadProgressBar.style.width = (pct||0)+'%';
+}
+
+async function handleFile(file){
+  hideError();
+  try{
+    const name = (file.name||'').toLowerCase();
+    if(name.endsWith('.json')){
+      showProgress('Reading JSON…', 30);
+      const txt = await file.text();
+      showProgress('Parsing conversations…', 70);
+      ingestJSONText(txt, file.name);
+      return;
+    }
+
+    showProgress('Opening archive…', 10);
+    if(typeof JSZip === 'undefined'){
+      showError('Could not load the unzip library (JSZip) — check your internet connection and try again.');
+      return;
+    }
+    const buf = await file.arrayBuffer();
+    const zip = await JSZip.loadAsync(buf);
+    showProgress('Scanning archive contents…', 35);
+
+    const jsonEntries = Object.keys(zip.files).filter(p => !zip.files[p].dir && p.toLowerCase().endsWith('.json'));
+    if(jsonEntries.length === 0){
+      showError('No JSON files found inside this archive. Make sure this is an official Claude data export.');
+      return;
+    }
+
+    let allConvos = [];
+    let picked = jsonEntries.filter(p => /conversations\.json$/i.test(p));
+    if(picked.length === 0) picked = jsonEntries;
+
+    for(let idx=0; idx<picked.length; idx++){
+      const p = picked[idx];
+      showProgress(`Parsing ${p.split('/').pop()}…`, 35 + Math.round((idx/picked.length)*55));
+      const txt = await zip.files[p].async('string');
+      try{
+        const data = JSON.parse(txt);
+        const found = extractConversationsFromAny(data);
+        allConvos = allConvos.concat(found);
+      }catch(e){ /* skip unparsable file */ }
+    }
+
+    if(allConvos.length === 0){
+      showError('This archive was read successfully, but no conversations could be found inside it.');
+      return;
+    }
+
+    showProgress('Rendering your chats…', 95);
+    finishLoad(allConvos, file.name);
+
+  }catch(err){
+    console.error(err);
+    showError('Something went wrong reading that file: ' + (err && err.message ? err.message : 'unknown error') + '. If this is a ZIP straight from Claude, try re-downloading the export link.');
+  }
+}
+
+function ingestJSONText(txt, filename){
+  try{
+    const data = JSON.parse(txt);
+    const found = extractConversationsFromAny(data);
+    if(found.length === 0){
+      showError('This JSON file does not look like a Claude conversations export.');
+      return;
+    }
+    finishLoad(found, filename);
+  }catch(e){
+    showError('Could not parse this file as JSON: ' + e.message);
+  }
+}
+
+function extractConversationsFromAny(data){
+  if(Array.isArray(data)){
+    if(data.length && (data[0].chat_messages || data[0].messages || data[0].uuid || data[0].name)){
+      return data.map(normalizeConversation);
+    }
+    if(data.length && (data[0].sender || data[0].role || data[0].text)){
+      return [normalizeConversation({name:'Imported conversation', chat_messages:data})];
+    }
+    return [];
+  }
+  if(data && typeof data === 'object'){
+    if(Array.isArray(data.conversations)) return data.conversations.map(normalizeConversation);
+    if(data.chat_messages || data.messages) return [normalizeConversation(data)];
+  }
+  return [];
+}
+
+function finishLoad(convos, sourceName){
+  CONVERSATIONS = convos.filter(c => c && c.messages && c.messages.length);
+  if(CONVERSATIONS.length === 0){
+    showError('Parsed the file, but found zero conversations with readable messages.');
+    return;
+  }
+  $('#loadScreen').style.display = 'none';
+  $('#app').classList.add('show');
+  renderSidebar();
+  toast(`Loaded ${CONVERSATIONS.length} conversation${CONVERSATIONS.length===1?'':'s'} from ${sourceName}`);
+}
+
+const convListEl = $('#convList');
+const searchInput = $('#searchInput');
+const sectionLabel = $('#sectionLabel');
+
+searchInput.addEventListener('input', ()=>{ SEARCH_Q = searchInput.value.trim().toLowerCase(); renderSidebar(); });
+
+$all('.sb-filters button').forEach(btn=>{
+  btn.addEventListener('click', ()=>{
+    $all('.sb-filters button').forEach(b=>b.classList.remove('active'));
+    btn.classList.add('active');
+    SORT_MODE = btn.dataset.sort;
+    renderSidebar();
+  });
+});
+
+$('#loadNewBtn').addEventListener('click', ()=>{
+  $('#app').classList.remove('show');
+  $('#loadScreen').style.display = 'flex';
+  fileInput.value = '';
+});
+
+function conversationMatches(c, q){
+  if(!q) return true;
+  if((c.name||'').toLowerCase().includes(q)) return true;
+  for(const m of c.messages){
+    if(m.text && m.text.toLowerCase().includes(q)) return true;
+  }
+  return false;
+}
+
+function renderSidebar(){
+  let list = CONVERSATIONS.filter(c => conversationMatches(c, SEARCH_Q));
+  if(SORT_MODE === 'starred') list = list.filter(c => STARRED.has(c.id));
+
+  list = list.slice().sort((a,b)=>{
+    if(SORT_MODE === 'az') return (a.name||'').localeCompare(b.name||'');
+    const ta = new Date(a.updated_at || a.created_at || 0).getTime();
+    const tb = new Date(b.updated_at || b.created_at || 0).getTime();
+    if(SORT_MODE === 'oldest') return ta - tb;
+    return tb - ta;
+  });
+
+  sectionLabel.textContent = SEARCH_Q ? `${list.length} result${list.length===1?'':'s'}` : (SORT_MODE==='starred' ? 'Starred' : 'Chats');
+
+  if(list.length === 0){
+    convListEl.innerHTML = `<div class="sb-empty">${SORT_MODE==='starred' ? 'No starred chats yet. Hover a chat and click the star to save it here.' : 'No chats match your search.'}</div>`;
+    return;
+  }
+
+  convListEl.innerHTML = list.map(c => {
+    const isActive = c.id === ACTIVE_ID;
+    const isStarred = STARRED.has(c.id);
+    return `
+      <div class="conv-item ${isActive?'active':''}" data-id="${esc(c.id)}">
+        <div class="ci-row">
+          <div class="ci-title">${esc(c.name)}</div>
+          <svg class="ci-star ${isStarred?'starred':''}" data-star="${esc(c.id)}" viewBox="0 0 24 24" fill="${isStarred?'currentColor':'none'}" stroke="currentColor" stroke-width="1.8"><polygon points="12 2 15 9 22 9.5 17 14.5 18.5 21.5 12 17.5 5.5 21.5 7 14.5 2 9.5 9 9"/></svg>
+        </div>
+      </div>`;
+  }).join('');
+
+  $all('.conv-item').forEach(el=>{
+    el.addEventListener('click', (e)=>{
+      if(e.target.closest('[data-star]')) return;
+      openConversation(el.dataset.id);
+    });
+  });
+  $all('[data-star]').forEach(el=>{
+    el.addEventListener('click', (e)=>{
+      e.stopPropagation();
+      const id = el.dataset.star;
+      if(STARRED.has(id)) STARRED.delete(id); else STARRED.add(id);
+      renderSidebar();
+    });
+  });
+}
+
+function shortenModel(m){
+  if(!m) return '';
+  return String(m).replace('claude-','').replace(/-\d{8}$/,'');
+}
+
+const transcriptEl = $('#transcript');
+const tbTitle = $('#tbTitle');
+const tbSub = $('#tbSub');
+const transcriptWrap = $('#transcriptWrap');
+const topbar = $('#topbar');
+
+transcriptWrap.addEventListener('scroll', ()=>{
+  topbar.classList.toggle('scrolled', transcriptWrap.scrollTop > 4);
+});
+
+function openConversation(id){
+  const c = CONVERSATIONS.find(x=>x.id===id);
+  if(!c) return;
+  ACTIVE_ID = id;
+  renderSidebar();
+  renderTranscript(c);
+  tbTitle.textContent = c.name;
+  const parts = [];
+  if(c.created_at) parts.push(fmtDate(c.created_at));
+  if(c.model) parts.push(shortenModel(c.model));
+  tbSub.textContent = parts.join(' · ');
+  transcriptWrap.scrollTop = 0;
+  if(window.innerWidth <= 880){ closeMobileSidebar(); }
+}
+
+function renderTranscript(c){
+  let html = '';
+  c.messages.forEach((m, i) => { html += renderTurn(m, i); });
+  transcriptEl.innerHTML = html;
+
+  $all('.thinking-head').forEach(h=>{
+    h.addEventListener('click', ()=> h.closest('.thinking-block').classList.toggle('open'));
+  });
+  $all('.code-copy-btn').forEach(btn=>{
+    btn.addEventListener('click', (e)=>{
+      const pre = btn.closest('.code-block-wrap').querySelector('code');
+      navigator.clipboard.writeText(pre.textContent).then(()=>{
+        const orig = btn.innerHTML; btn.innerHTML='Copied'; setTimeout(()=>btn.innerHTML=orig, 1200);
+      }).catch(()=>{ toast('Copy failed — select the text manually'); });
+    });
+  });
+}
+
+function renderTurn(m, idx){
+  let inner = '';
+
+  if(m.thinking){
+    inner += `
+      <div class="thinking-block">
+        <div class="thinking-head"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg> Thought process</div>
+        <div class="thinking-text">${esc(m.thinking)}</div>
+      </div>`;
+  }
+
+  if(m.text){
+    inner += `<div class="turn-content">${renderMarkdown(m.text)}</div>`;
+  }
+
+  if(m.artifacts && m.artifacts.length){
+    m.artifacts.forEach(art=>{
+      const isCode = art.language && !['markdown','md','text','txt',''].includes(art.language.toLowerCase());
+      inner += `
+        <div class="artifact-card">
+          <div class="artifact-head">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 9h6v6H9z"/></svg>
+            ${esc(art.title)}
+            <span class="at-type">${esc(art.language || 'artifact')}</span>
+          </div>
+          <div class="artifact-body ${isCode?'':'text-artifact'}">
+            ${isCode ? `<div class="code-block-wrap"><pre><code>${esc(art.content)}</code></pre></div>` : esc(art.content)}
+          </div>
+        </div>`;
+    });
+  }
+
+  if(m.toolCalls && m.toolCalls.length){
+    m.toolCalls.forEach(tc=>{
+      let inputStr = '';
+      try{ inputStr = typeof tc.input === 'string' ? tc.input : JSON.stringify(tc.input); }catch(e){ inputStr = String(tc.input); }
+      inner += `<div class="tool-block"><span class="tb-name">${tc.kind==='result'?'↳ result from':'⚙ tool call:'} ${esc(tc.name)}</span>${inputStr ? '<br>'+esc(inputStr.slice(0,300)) : ''}</div>`;
+    });
+  }
+
+  if(m.attachments && m.attachments.length){
+    m.attachments.forEach(a=>{
+      inner += `<div class="attach-chip"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.44 11.05l-9.19 9.19a5 5 0 01-7.07-7.07l9.19-9.19a3.5 3.5 0 015 5l-9.2 9.19a1.5 1.5 0 01-2.12-2.12l8.49-8.48"/></svg>${esc(a.name)}</div>`;
+    });
+  }
+
+  if(!inner.trim()){
+    inner = `<div class="turn-content" style="color:var(--text-tertiary); font-style:italic;">(empty message)</div>`;
+  }
+
+  if(m.sender === 'human'){
+    return `
+      <div class="turn human" data-idx="${idx}">
+        <div class="turn-inner">
+          ${inner}
+        </div>
+      </div>`;
+  }
+
+  return `
+    <div class="turn assistant" data-idx="${idx}">
+      <div class="turn-inner">
+        <div class="claude-avatar"><svg viewBox="0 0 24 24" fill="none"><path d="M12 3L4 20h4l1.5-3.5h5L16 20h4L12 3z" fill="currentColor"/></svg></div>
+        <div class="assistant-body">
+          ${inner}
+        </div>
+      </div>
+    </div>`;
+}
+
+const findBar = $('#findBar');
+const findInput = $('#findInput');
+const findCount = $('#findCount');
+
+$('#findBtn').addEventListener('click', ()=>{
+  findBar.classList.add('show');
+  findInput.focus();
+});
+$('#findClose').addEventListener('click', closeFinder);
+document.addEventListener('keydown', e=>{
+  if((e.metaKey||e.ctrlKey) && e.key.toLowerCase()==='f' && ACTIVE_ID){
+    e.preventDefault();
+    findBar.classList.add('show');
+    findInput.focus(); findInput.select();
+  } else if(e.key === 'Escape' && findBar.classList.contains('show')){
+    closeFinder();
+  }
+});
+function closeFinder(){
+  findBar.classList.remove('show');
+  clearHighlights();
+}
+function clearHighlights(){
+  $all('mark.hl').forEach(m=>{
+    const parent = m.parentNode;
+    parent.replaceChild(document.createTextNode(m.textContent), m);
+    parent.normalize();
+  });
+  FIND_MATCHES = []; FIND_IDX = -1; findCount.textContent = '';
+}
+findInput.addEventListener('input', ()=>{
+  const q = findInput.value.trim();
+  clearHighlights();
+  if(!q) return;
+  const walker = document.createTreeWalker($('#transcript'), NodeFilter.SHOW_TEXT, null);
+  const nodes = [];
+  let n;
+  while(n = walker.nextNode()){
+    if(n.textContent.toLowerCase().includes(q.toLowerCase())) nodes.push(n);
+  }
+  const re = new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'), 'gi');
+  nodes.forEach(node=>{
+    const frag = document.createDocumentFragment();
+    let lastIdx = 0; let match;
+    const text = node.textContent;
+    re.lastIndex = 0;
+    while(match = re.exec(text)){
+      frag.appendChild(document.createTextNode(text.slice(lastIdx, match.index)));
+      const mark = document.createElement('mark');
+      mark.className='hl'; mark.textContent = match[0];
+      frag.appendChild(mark);
+      FIND_MATCHES.push(mark);
+      lastIdx = match.index + match[0].length;
+    }
+    frag.appendChild(document.createTextNode(text.slice(lastIdx)));
+    node.parentNode.replaceChild(frag, node);
+  });
+  findCount.textContent = FIND_MATCHES.length ? `1/${FIND_MATCHES.length}` : '0/0';
+  FIND_IDX = FIND_MATCHES.length ? 0 : -1;
+  if(FIND_IDX>=0) scrollToMatch();
+});
+function scrollToMatch(){
+  FIND_MATCHES.forEach(m=>{ m.style.background=''; m.style.color=''; });
+  const m = FIND_MATCHES[FIND_IDX];
+  if(!m) return;
+  m.style.background = '#C15F3C';
+  m.style.color = '#fff';
+  m.scrollIntoView({block:'center', behavior:'smooth'});
+  findCount.textContent = `${FIND_IDX+1}/${FIND_MATCHES.length}`;
+}
+$('#findNext').addEventListener('click', ()=>{
+  if(!FIND_MATCHES.length) return;
+  FIND_IDX = (FIND_IDX+1) % FIND_MATCHES.length; scrollToMatch();
+});
+$('#findPrev').addEventListener('click', ()=>{
+  if(!FIND_MATCHES.length) return;
+  FIND_IDX = (FIND_IDX-1+FIND_MATCHES.length) % FIND_MATCHES.length; scrollToMatch();
+});
+findInput.addEventListener('keydown', e=>{
+  if(e.key==='Enter'){ e.shiftKey ? $('#findPrev').click() : $('#findNext').click(); }
+});
+
+const exportBtn = $('#exportBtn');
+const exportMenu = $('#exportMenu');
+exportBtn.addEventListener('click', (e)=>{ e.stopPropagation(); exportMenu.classList.toggle('show'); });
+document.addEventListener('click', ()=> exportMenu.classList.remove('show'));
+
+$all('[data-exp]').forEach(btn=>{
+  btn.addEventListener('click', ()=>{
+    const c = CONVERSATIONS.find(x=>x.id===ACTIVE_ID);
+    if(!c){ toast('Open a chat first'); return; }
+    const fmt = btn.dataset.exp;
+    const safeName = (c.name||'conversation').replace(/[^\w\-]+/g,'_').slice(0,60);
+    if(fmt==='md') download(safeName+'.md', conversationToMarkdown(c), 'text/markdown');
+    if(fmt==='txt') download(safeName+'.txt', conversationToPlainText(c), 'text/plain');
+    if(fmt==='json') download(safeName+'.json', JSON.stringify(c, null, 2), 'application/json');
+    if(fmt==='html') download(safeName+'.html', conversationToStandaloneHTML(c), 'text/html');
+    exportMenu.classList.remove('show');
+  });
+});
+$('#printBtn').addEventListener('click', ()=>{
+  exportMenu.classList.remove('show');
+  window.print();
+});
+
+function conversationToMarkdown(c){
+  let out = `# ${c.name}\n\n`;
+  if(c.created_at) out += `_Created: ${fmtDateTime(c.created_at)}_${c.model?' · Model: '+shortenModel(c.model):''}\n\n---\n\n`;
+  c.messages.forEach(m=>{
+    out += `### ${m.sender==='human'?'You':'Claude'}${m.created_at? ' — '+fmtDateTime(m.created_at):''}\n\n`;
+    if(m.thinking) out += `> _Thinking:_ ${m.thinking.replace(/\n/g,'\n> ')}\n\n`;
+    if(m.text) out += m.text + '\n\n';
+    (m.artifacts||[]).forEach(a=>{
+      out += `**Artifact: ${a.title}**\n\n\`\`\`${a.language||''}\n${a.content}\n\`\`\`\n\n`;
+    });
+    (m.attachments||[]).forEach(a=> out += `📎 ${a.name}\n\n`);
+    out += '\n';
+  });
+  return out;
+}
+function conversationToPlainText(c){
+  let out = `${c.name}\n${'='.repeat(c.name.length)}\n\n`;
+  c.messages.forEach(m=>{
+    out += `[${m.sender==='human'?'You':'Claude'}${m.created_at? ' - '+fmtDateTime(m.created_at):''}]\n`;
+    if(m.text) out += m.text + '\n';
+    (m.artifacts||[]).forEach(a=> out += `\n--- Artifact: ${a.title} ---\n${a.content}\n--- end ---\n`);
+    out += '\n';
+  });
+  return out;
+}
+function conversationToStandaloneHTML(c){
+  const body = c.messages.map(m=>renderTurn(m, 0)).join('\n');
+  return `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>${esc(c.name)}</title>
+<style>
+body{font-family:-apple-system,Helvetica,Arial,sans-serif;max-width:760px;margin:40px auto;padding:0 20px;line-height:1.6;color:#2D2A26;background:#FAF9F5;}
+.turn{margin-bottom:24px;display:flex;}
+.turn.human{justify-content:flex-end;}
+.turn.human .turn-inner{background:#E8E5DB;border-radius:18px;padding:12px 18px;max-width:75%;}
+.turn.assistant .turn-inner{display:flex;gap:14px;}
+.claude-avatar{width:28px;height:28px;border-radius:8px;background:#C15F3C;display:flex;align-items:center;justify-content:center;flex-shrink:0;color:#fff;}
+pre{background:#2D2A26;color:#F5F1E8;padding:14px;border-radius:10px;overflow-x:auto;}
+code{font-family:monospace;background:#F0EEE6;padding:1px 6px;border-radius:4px;}
+pre code{background:none;padding:0;color:inherit;}
+h1{border-bottom:2px solid #C15F3C;padding-bottom:10px;}
+.artifact-card{border:1px solid #E5E2D9;border-radius:10px;margin:10px 0;overflow:hidden;}
+.artifact-head{background:#F0EEE6;padding:8px 12px;font-size:13px;font-weight:600;}
+.attach-chip{display:inline-block;background:#F0EEE6;border:1px solid #E5E2D9;padding:6px 12px;border-radius:10px;font-size:12px;margin:4px 4px 0 0;}
+</style></head><body>
+<h1>${esc(c.name)}</h1>
+<p style="font-size:12px;color:#9C9788;">${c.created_at? 'Created '+esc(fmtDateTime(c.created_at)):''} ${c.model? ' · '+esc(shortenModel(c.model)) : ''}</p>
+${body}
+</body></html>`;
+}
+
+const sbToggle = $('#sbToggle');
+const sidebar = $('#sidebar');
+const sbOverlay = $('#sbOverlay');
+sbToggle.addEventListener('click', ()=>{
+  sidebar.classList.toggle('open');
+  sbOverlay.classList.toggle('show');
+});
+sbOverlay.addEventListener('click', closeMobileSidebar);
+function closeMobileSidebar(){
+  sidebar.classList.remove('open');
+  sbOverlay.classList.remove('show');
+}
+
+})();
+</script>
+</body>
+</html>
