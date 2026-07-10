@@ -1,10 +1,13 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Claude Export Viewer</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;450;500;600;700&family=Source+Serif+4:opsz,wght@8..60,400;8..60,500;8..60,600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
 :root{
   --bg-main: #FAF9F5;
@@ -22,15 +25,51 @@
   --accent-soft: #F3E2D8;
   --code-bg: #2D2A26;
   --code-text: #F5F1E8;
+  --danger-bg:#FBEAE2;
+  --danger-border:#E8C3AE;
+  --danger-text:#8A3A1C;
+  --shadow-pop: 0 8px 24px rgba(0,0,0,0.12);
+  --shadow-pop-strong: 0 8px 24px rgba(0,0,0,0.18);
   --radius-sm: 6px;
   --radius-md: 10px;
   --radius-lg: 18px;
-  --sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Inter', Helvetica, Arial, sans-serif;
-  --mono: 'SF Mono', 'JetBrains Mono', Menlo, Consolas, monospace;
+  /* Claude's real UI runs Styrene B (sans) for interface/body and Tiempos (serif) for
+     some display text. Both are licensed, so we fall back to the closest free-metric
+     matches: Inter (humanist grotesk, close to Styrene B) and Georgia/serif for Tiempos. */
+  --sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+  --serif: 'Tiempos Text', 'Source Serif 4', Georgia, 'Iowan Old Style', serif;
+  --mono: 'JetBrains Mono', 'SF Mono', Menlo, Consolas, monospace;
+}
+
+:root, [data-theme="light"]{
+  color-scheme: light;
+}
+[data-theme="dark"]{
+  color-scheme: dark;
+  --bg-main: #1F1E1C;
+  --bg-sidebar: #181715;
+  --bg-sidebar-hover: #29271F;
+  --bg-sidebar-active: #322F26;
+  --bg-user-bubble: #2E2C27;
+  --bg-input: #262420;
+  --border: #35322B;
+  --text-primary: #ECE8DE;
+  --text-secondary: #A8A296;
+  --text-tertiary: #766F60;
+  --accent: #D97757;
+  --accent-hover: #E88C6D;
+  --accent-soft: #3A2A21;
+  --code-bg: #14130F;
+  --code-text: #ECE8DE;
+  --danger-bg:#3A2119;
+  --danger-border:#5C2E1D;
+  --danger-text:#F0A583;
+  --shadow-pop: 0 8px 24px rgba(0,0,0,0.45);
+  --shadow-pop-strong: 0 8px 30px rgba(0,0,0,0.6);
 }
 *{box-sizing:border-box;}
 html,body{height:100%;}
-body{margin:0;background:var(--bg-main);color:var(--text-primary);font-family:var(--sans);font-size:15px;-webkit-font-smoothing:antialiased;}
+body{margin:0;background:var(--bg-main);color:var(--text-primary);font-family:var(--sans);font-size:15px;-webkit-font-smoothing:antialiased;transition:background-color .18s ease, color .18s ease;}
 ::selection{background:var(--accent-soft);}
 ::-webkit-scrollbar{width:8px; height:8px;}
 ::-webkit-scrollbar-track{background:transparent;}
@@ -58,7 +97,7 @@ button{font-family:inherit;}
 .load-progress.show{display:block;}
 .load-progress .bar{ height:3px; background:var(--bg-sidebar); border-radius:2px; overflow:hidden; margin-top:8px; }
 .load-progress .bar > div{ height:100%; width:0%; background:var(--accent); transition:width .2s ease; }
-.load-error{ margin-top:16px; padding:12px 14px; background:#FBEAE2; border:1px solid #E8C3AE; border-radius:var(--radius-sm); font-size:13.5px; color:#8A3A1C; text-align:left; display:none; }
+.load-error{ margin-top:16px; padding:12px 14px; background:var(--danger-bg); border:1px solid var(--danger-border); border-radius:var(--radius-sm); font-size:13.5px; color:var(--danger-text); text-align:left; display:none; }
 .load-error.show{display:block;}
 .load-priv{ margin-top:22px; display:flex; align-items:center; justify-content:center; gap:6px; font-size:12px; color:var(--text-tertiary); }
 .load-priv svg{width:12px; height:12px;}
@@ -182,19 +221,29 @@ details.howto code{background:var(--bg-sidebar); padding:1px 5px; border-radius:
 .thinking-block.open .thinking-head svg{transform:rotate(90deg);}
 .thinking-text{ display:none; margin-top:10px; font-size:13.5px; line-height:1.6; color:var(--text-secondary); white-space:pre-wrap; padding-top:10px; border-top:1px solid var(--border); }
 .thinking-block.open .thinking-text{display:block;}
-.tool-block{ border:1px solid var(--border); border-radius:var(--radius-md); padding:10px 15px; margin:6px 0 16px; font-family:var(--mono); font-size:12px; color:var(--text-secondary); background:var(--bg-sidebar); }
-.tool-block .tb-name{color:var(--accent); font-weight:600;}
-mark.hl{background:#FCE4A8; border-radius:2px; padding:0 1px;}
+.tool-block{ border:1px solid var(--border); border-radius:var(--radius-md); margin:6px 0 16px; overflow:hidden; background:var(--bg-sidebar); }
+.tool-block-head{ display:flex; align-items:center; gap:8px; padding:10px 14px; cursor:pointer; user-select:none; }
+.tool-block-head svg.tb-caret{width:12px; height:12px; color:var(--text-tertiary); flex-shrink:0; transition:transform .15s;}
+.tool-block.open .tool-block-head svg.tb-caret{transform:rotate(90deg);}
+.tool-block-head svg.tb-icon{width:14px; height:14px; color:var(--accent); flex-shrink:0;}
+.tool-block .tb-label{font-size:13px; color:var(--text-secondary);}
+.tool-block .tb-name{color:var(--text-primary); font-weight:600; font-family:var(--mono); font-size:12.5px;}
+.tool-block .tb-kind{margin-left:auto; font-family:var(--mono); font-size:10px; letter-spacing:0.04em; text-transform:uppercase; color:var(--text-tertiary); background:var(--bg-input); border:1px solid var(--border); padding:2px 7px; border-radius:20px;}
+.tool-block-body{ display:none; border-top:1px solid var(--border); }
+.tool-block.open .tool-block-body{display:block;}
+.tool-block-body pre{ margin:0; border-radius:0; background:var(--code-bg); color:var(--code-text); padding:12px 15px; font-size:12px; line-height:1.55; overflow-x:auto; font-family:var(--mono); white-space:pre-wrap; word-break:break-word; }
+mark.hl{background:#FCE4A8; color:#2D2A26; border-radius:2px; padding:0 1px;}
+[data-theme="dark"] mark.hl{background:#8A6A2A; color:#F5F1E8;}
 
-#findBar{ position:fixed; top:14px; right:14px; background:var(--text-primary); color:#fff; border-radius:var(--radius-md); box-shadow:0 8px 24px rgba(0,0,0,0.18); display:none; align-items:center; gap:8px; padding:8px 10px; z-index:50; font-size:13px; }
+#findBar{ position:fixed; top:14px; right:14px; background:var(--bg-input); color:var(--text-primary); border:1px solid var(--border); border-radius:var(--radius-md); box-shadow:var(--shadow-pop-strong); display:none; align-items:center; gap:8px; padding:8px 10px; z-index:50; font-size:13px; }
 #findBar.show{display:flex;}
-#findBar input{ background:rgba(255,255,255,0.12); border:1px solid rgba(255,255,255,0.2); color:#fff; padding:6px 9px; border-radius:6px; outline:none; width:200px; font-family:inherit; font-size:13px; }
-#findBar input::placeholder{color:rgba(255,255,255,0.5);}
-#findBar button{background:none; border:none; color:rgba(255,255,255,0.6); cursor:pointer; padding:4px; border-radius:5px;}
-#findBar button:hover{color:#fff; background:rgba(255,255,255,0.1);}
-#findBar .fcount{color:rgba(255,255,255,0.55); min-width:46px; font-size:12px;}
+#findBar input{ background:var(--bg-sidebar); border:1px solid var(--border); color:var(--text-primary); padding:6px 9px; border-radius:6px; outline:none; width:200px; font-family:inherit; font-size:13px; }
+#findBar input::placeholder{color:var(--text-tertiary);}
+#findBar button{background:none; border:none; color:var(--text-secondary); cursor:pointer; padding:4px; border-radius:5px;}
+#findBar button:hover{color:var(--text-primary); background:var(--bg-sidebar-hover);}
+#findBar .fcount{color:var(--text-tertiary); min-width:46px; font-size:12px;}
 
-.menu-pop{ position:absolute; top:calc(100% + 6px); right:0; background:var(--bg-input); border:1px solid var(--border); border-radius:var(--radius-md); box-shadow:0 8px 24px rgba(0,0,0,0.12); min-width:200px; z-index:40; display:none; overflow:hidden; padding:5px; }
+.menu-pop{ position:absolute; top:calc(100% + 6px); right:0; background:var(--bg-input); border:1px solid var(--border); border-radius:var(--radius-md); box-shadow:var(--shadow-pop); min-width:200px; z-index:40; display:none; overflow:hidden; padding:5px; }
 .menu-pop.show{display:block;}
 .menu-pop button{ display:flex; align-items:center; gap:10px; width:100%; background:none; border:none; text-align:left; padding:9px 11px; font-size:13.5px; color:var(--text-primary); cursor:pointer; border-radius:7px; }
 .menu-pop button:hover{background:var(--bg-sidebar-hover);}
@@ -202,11 +251,11 @@ mark.hl{background:#FCE4A8; border-radius:2px; padding:0 1px;}
 .menu-pop hr{border:none; border-top:1px solid var(--border); margin:5px 3px;}
 .tb-wrap{position:relative;}
 
-#toast{ position:fixed; bottom:22px; left:50%; transform:translateX(-50%) translateY(20px); background:var(--text-primary); color:#fff; padding:10px 18px; border-radius:20px; font-size:13px; opacity:0; pointer-events:none; transition:all .25s ease; z-index:200; box-shadow:0 8px 24px rgba(0,0,0,0.18); }
+#toast{ position:fixed; bottom:22px; left:50%; transform:translateX(-50%) translateY(20px); background:var(--text-primary); color:var(--bg-main); padding:10px 18px; border-radius:20px; font-size:13px; opacity:0; pointer-events:none; transition:all .25s ease; z-index:200; box-shadow:var(--shadow-pop-strong); }
 #toast.show{opacity:1; transform:translateX(-50%) translateY(0);}
 
 @media (max-width:880px){
-  #sidebar{position:fixed; left:0; top:0; bottom:0; z-index:60; transform:translateX(-100%); transition:transform .2s ease; box-shadow:0 0 30px rgba(0,0,0,0.15);}
+  #sidebar{position:fixed; left:0; top:0; bottom:0; z-index:60; transform:translateX(-100%); transition:transform .2s ease; box-shadow:var(--shadow-pop-strong);}
   #sidebar.open{transform:translateX(0);}
   #transcript{padding:16px 16px 160px;}
   #topbar{padding:0 12px;}
@@ -226,6 +275,10 @@ mark.hl{background:#FCE4A8; border-radius:2px; padding:0 1px;}
 <body>
 
 <div id="loadScreen">
+  <button class="tb-icon-btn" id="themeBtnLoad" title="Toggle dark mode" style="position:absolute; top:20px; right:20px;">
+    <svg id="themeIconMoonLoad" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></svg>
+    <svg id="themeIconSunLoad" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display:none;"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
+  </button>
   <div class="load-card">
     <div class="load-mark">
       <svg viewBox="0 0 24 24" fill="none"><path d="M12 3L4 20h4l1.5-3.5h5L16 20h4L12 3z" fill="currentColor"/></svg>
@@ -308,6 +361,10 @@ mark.hl{background:#FCE4A8; border-radius:2px; padding:0 1px;}
         </div>
       </div>
       <div class="tb-actions">
+        <button class="tb-icon-btn" id="themeBtn" title="Toggle dark mode">
+          <svg id="themeIconMoon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></svg>
+          <svg id="themeIconSun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display:none;"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
+        </button>
         <button class="tb-icon-btn" id="findBtn" title="Find in chat"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.35-4.35"/></svg></button>
         <div class="tb-wrap">
           <button class="tb-btn-text" id="exportBtn">
@@ -359,6 +416,30 @@ let SEARCH_Q = '';
 let STARRED = new Set();
 let FIND_MATCHES = [];
 let FIND_IDX = -1;
+
+/* ============================================================
+   THEME (dark mode default, toggle persists via localStorage)
+   ============================================================ */
+function applyTheme(theme){
+  document.documentElement.setAttribute('data-theme', theme);
+  const isDark = theme === 'dark';
+  [document.getElementById('themeIconMoon'), document.getElementById('themeIconMoonLoad')].forEach(el=>{ if(el) el.style.display = isDark ? 'none' : 'block'; });
+  [document.getElementById('themeIconSun'), document.getElementById('themeIconSunLoad')].forEach(el=>{ if(el) el.style.display = isDark ? 'block' : 'none'; });
+  try{ localStorage.setItem('claude-viewer-theme', theme); }catch(e){ /* ignore */ }
+}
+function initTheme(){
+  let saved = null;
+  try{ saved = localStorage.getItem('claude-viewer-theme'); }catch(e){ /* ignore */ }
+  if(!saved){
+    saved = (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches) ? 'light' : 'dark';
+  }
+  applyTheme(saved);
+}
+function toggleTheme(){
+  const cur = document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light';
+  applyTheme(cur === 'dark' ? 'light' : 'dark');
+}
+initTheme();
 
 function $(sel,ctx){return (ctx||document).querySelector(sel);}
 function $all(sel,ctx){return Array.from((ctx||document).querySelectorAll(sel));}
@@ -877,6 +958,9 @@ function renderTranscript(c){
   $all('.thinking-head').forEach(h=>{
     h.addEventListener('click', ()=> h.closest('.thinking-block').classList.toggle('open'));
   });
+  $all('.tool-block-head').forEach(h=>{
+    h.addEventListener('click', ()=> h.closest('.tool-block').classList.toggle('open'));
+  });
   $all('.code-copy-btn').forEach(btn=>{
     btn.addEventListener('click', (e)=>{
       const pre = btn.closest('.code-block-wrap').querySelector('code');
@@ -920,10 +1004,27 @@ function renderTurn(m, idx){
   }
 
   if(m.toolCalls && m.toolCalls.length){
-    m.toolCalls.forEach(tc=>{
+    m.toolCalls.forEach((tc, tcIdx)=>{
       let inputStr = '';
-      try{ inputStr = typeof tc.input === 'string' ? tc.input : JSON.stringify(tc.input); }catch(e){ inputStr = String(tc.input); }
-      inner += `<div class="tool-block"><span class="tb-name">${tc.kind==='result'?'↳ result from':'⚙ tool call:'} ${esc(tc.name)}</span>${inputStr ? '<br>'+esc(inputStr.slice(0,300)) : ''}</div>`;
+      try{
+        inputStr = typeof tc.input === 'string' ? tc.input : JSON.stringify(tc.input, null, 2);
+      }catch(e){ inputStr = String(tc.input); }
+      const isResult = tc.kind === 'result';
+      const label = isResult ? 'Result from' : 'Tool call';
+      const iconPath = isResult
+        ? '<path d="M20 6L9 17l-5-5"/>'
+        : '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/>';
+      inner += `
+        <div class="tool-block" data-tool-idx="${idx}-${tcIdx}">
+          <div class="tool-block-head">
+            <svg class="tb-caret" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M9 18l6-6-6-6"/></svg>
+            <svg class="tb-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">${iconPath}</svg>
+            <span class="tb-label">${label}</span>
+            <span class="tb-name">${esc(tc.name)}</span>
+            <span class="tb-kind">${isResult ? 'result' : 'call'}</span>
+          </div>
+          ${inputStr ? `<div class="tool-block-body"><pre>${esc(inputStr)}</pre></div>` : ''}
+        </div>`;
     });
   }
 
@@ -1110,6 +1211,11 @@ h1{border-bottom:2px solid #C15F3C;padding-bottom:10px;}
 ${body}
 </body></html>`;
 }
+
+const themeBtn = $('#themeBtn');
+const themeBtnLoad = $('#themeBtnLoad');
+if(themeBtn) themeBtn.addEventListener('click', toggleTheme);
+if(themeBtnLoad) themeBtnLoad.addEventListener('click', toggleTheme);
 
 const sbToggle = $('#sbToggle');
 const sidebar = $('#sidebar');
