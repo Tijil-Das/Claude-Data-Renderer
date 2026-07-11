@@ -1241,9 +1241,9 @@ function renderTranscript(c){
       }).catch(()=>{ toast('Copy failed — select the text manually'); });
     });
   });
-  $all('.mf-edit, .mf-regen').forEach(btn=>{
+  $all('.mf-regen').forEach(btn=>{
     btn.addEventListener('click', ()=>{
-      toast('This is a read-only archive viewer — editing and regenerating aren\'t available');
+      toast('This is a read-only archive viewer — regenerating isn\'t available');
     });
   });
 }
@@ -1368,7 +1368,6 @@ function renderTurn(m, idx){
   const dateLabel = m.created_at ? fmtShortDate(m.created_at) : '';
   const hasBranch = m.branch && m.branch.siblingCount > 1;
   const copyIcon = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15V5a2 2 0 012-2h10"/></svg>';
-  const editIcon = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>';
   const regenIcon = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>';
 
   let switcherHtml = '';
@@ -1387,11 +1386,11 @@ function renderTurn(m, idx){
 
   let footerHtml;
   if(m.sender === 'human'){
-    // date ... edit  copy  |  switcher   (right-aligned, matching the real UI)
+    // date  copy  |  switcher   (right-aligned, matching the real UI — no edit
+    // button since this is a read-only archive viewer, not live chat)
     footerHtml = `
       <div class="msg-footer">
         ${dateLabel ? `<span class="mf-date">${esc(dateLabel)}</span>` : ''}
-        <button class="mf-icon-btn mf-edit" title="Edit">${editIcon}</button>
         ${copyBtn}
         ${hasBranch ? `<span class="mf-sep"></span>${switcherHtml}` : ''}
       </div>`;
