@@ -164,11 +164,13 @@ details.howto code{background:var(--bg-sidebar); padding:1px 5px; border-radius:
 .welcome h2{font-size:22px; color:var(--text-primary); font-weight:600; margin:0 0 8px; letter-spacing:-0.01em;}
 .welcome p{font-size:14.5px; max-width:380px; line-height:1.6; margin:0; color:var(--text-secondary);}
 
-.turn{ margin-bottom:28px; display:flex; }
+.turn{ margin-bottom:2px; display:flex; }
 .turn.human{ justify-content:flex-end; }
 .turn.assistant{ justify-content:flex-start; }
 .turn-inner{ max-width:100%; }
 .turn.human .turn-inner{ background:var(--bg-user-bubble); border-radius:var(--radius-lg); padding:12px 18px; max-width:75%; }
+.turn.human .turn-col{ display:flex; flex-direction:column; align-items:flex-end; max-width:75%; }
+.turn.human .turn-col .turn-inner{ max-width:100%; }
 
 .human-msg-collapse{
   position:relative; max-height:220px; overflow:hidden;
@@ -190,23 +192,45 @@ details.howto code{background:var(--bg-sidebar); padding:1px 5px; border-radius:
 .show-more-btn.expanded svg{transform:rotate(180deg);}
 .show-more-btn:hover{color:var(--accent);}
 
-.branch-switcher{
-  display:inline-flex; align-items:center; gap:2px;
-  margin-top:8px;
-  font-size:11.5px; color:var(--text-tertiary);
-  font-family:var(--mono);
+/* Message footer: date + action icons (regenerate/edit/copy) + version switcher,
+   all in one muted row directly under the message — matches claude.ai exactly. */
+.msg-footer{
+  display:flex; align-items:center; gap:2px;
+  margin-top:6px; margin-bottom:26px;
+  height:26px;
+  font-size:12px; color:var(--text-tertiary);
+  font-family:var(--sans);
 }
-.turn.human .branch-switcher{ justify-content:flex-end; width:100%; }
+.turn.human .msg-footer{ justify-content:flex-end; }
+.turn.assistant .msg-footer{ justify-content:flex-start; padding-left:42px; }
+.msg-footer .mf-date{
+  font-size:12px; color:var(--text-tertiary); margin-right:2px; white-space:nowrap;
+  font-variant-numeric:tabular-nums;
+}
+.msg-footer .mf-icon-btn{
+  display:flex; align-items:center; justify-content:center;
+  width:26px; height:26px; border-radius:6px;
+  background:none; border:none; cursor:pointer; color:var(--text-tertiary);
+  transition:background .12s, color .12s;
+}
+.msg-footer .mf-icon-btn:hover{ background:var(--bg-sidebar-hover); color:var(--text-primary); }
+.msg-footer .mf-icon-btn svg{width:14px; height:14px;}
+.msg-footer .mf-sep{ width:1px; align-self:stretch; margin:5px 2px; background:var(--border); }
+.branch-switcher{
+  display:inline-flex; align-items:center; gap:0;
+  font-size:12px; color:var(--text-tertiary);
+  font-variant-numeric:tabular-nums;
+}
 .branch-switcher button{
   display:flex; align-items:center; justify-content:center;
-  width:20px; height:20px; border-radius:5px;
+  width:22px; height:22px; border-radius:6px;
   background:none; border:none; cursor:pointer; color:var(--text-tertiary);
   transition:background .12s, color .12s;
 }
 .branch-switcher button:hover:not(:disabled){ background:var(--bg-sidebar-hover); color:var(--text-primary); }
 .branch-switcher button:disabled{ opacity:0.3; cursor:default; }
 .branch-switcher button svg{width:13px; height:13px;}
-.branch-switcher .bs-count{ padding:0 4px; min-width:32px; text-align:center; user-select:none; }
+.branch-switcher .bs-count{ padding:0 2px; min-width:28px; text-align:center; user-select:none; }
 .turn.assistant .turn-inner{ display:flex; gap:14px; width:100%; max-width:100%; }
 .claude-avatar{ width:28px; height:28px; border-radius:8px; flex-shrink:0; background:var(--accent); display:flex; align-items:center; justify-content:center; margin-top:2px; }
 .claude-avatar svg{width:16px; height:16px; color:#fff;}
@@ -328,6 +352,7 @@ mark.hl{background:#FCE4A8; color:#2D2A26; border-radius:2px; padding:0 1px;}
   #topbar{padding:0 12px;}
   #sbToggle{display:flex;}
   .turn.human .turn-inner{max-width:88%;}
+  .turn.human .turn-col{max-width:88%;}
   .tb-btn-text .btxt{display:none;}
 }
 #sbOverlay{display:none; position:fixed; inset:0; background:rgba(0,0,0,0.25); z-index:55;}
@@ -531,6 +556,19 @@ function fmtTime(iso){
   const d = new Date(iso);
   if(isNaN(d)) return '';
   return d.toLocaleTimeString(undefined,{hour:'numeric',minute:'2-digit'});
+}
+function fmtShortDate(iso){
+  // Matches claude.ai's compact per-message date stamp, e.g. "Jul 10". Falls back
+  // to including the year for messages from a previous year so old exports don't
+  // become ambiguous.
+  if(!iso) return '';
+  const d = new Date(iso);
+  if(isNaN(d)) return '';
+  const now = new Date();
+  const opts = d.getFullYear() === now.getFullYear()
+    ? {month:'short', day:'numeric'}
+    : {month:'short', day:'numeric', year:'numeric'};
+  return d.toLocaleDateString(undefined, opts);
 }
 function download(filename, content, mime){
   const blob = new Blob([content], {type: mime || 'text/plain'});
@@ -1179,8 +1217,7 @@ function renderTranscript(c){
     let current = parseInt(sw.dataset.current, 10) || 0;
 
     function renderSibling(){
-      const turn = sw.closest('.turn');
-      const contentEl = turn.querySelector('.turn-content');
+      const contentEl = findAssociatedTurnContent(sw);
       if(contentEl && siblings[current]){
         contentEl.innerHTML = renderMarkdown(siblings[current].text || '');
       }
@@ -1195,6 +1232,47 @@ function renderTranscript(c){
       if(current < siblings.length - 1){ current++; renderSibling(); }
     });
   });
+  $all('.mf-copy').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const contentEl = findAssociatedTurnContent(btn);
+      const text = contentEl ? contentEl.innerText : '';
+      navigator.clipboard.writeText(text).then(()=>{
+        toast('Message copied');
+      }).catch(()=>{ toast('Copy failed — select the text manually'); });
+    });
+  });
+  $all('.mf-edit, .mf-regen').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      toast('This is a read-only archive viewer — editing and regenerating aren\'t available');
+    });
+  });
+}
+
+// Finds the .turn-content belonging to the same message as a footer control
+// (copy button, branch switcher). Works whether the footer is nested inside
+// .turn-col (human messages, right-aligned under the bubble) or sits as a
+// full-width sibling row right after .turn (assistant messages) — rather than
+// assuming one specific DOM shape via sibling-walking, which breaks the moment
+// the layout changes.
+function findAssociatedTurnContent(el){
+  const footer = el.closest('.msg-footer');
+  if(!footer) return null;
+  // Case 1: footer nested inside .turn-col alongside the message (human turns).
+  // Only trust this when the parent IS specifically a .turn-col — never fall back
+  // to a shared ancestor that might also contain other messages, or querySelector
+  // will silently grab the wrong (first-in-document) turn-content.
+  const parent = footer.parentElement;
+  if(parent && parent.classList && parent.classList.contains('turn-col')){
+    const local = parent.querySelector('.turn-content');
+    if(local) return local;
+  }
+  // Case 2: footer is a sibling immediately following .turn (assistant row).
+  const prev = footer.previousElementSibling;
+  if(prev && prev.classList && prev.classList.contains('turn')){
+    const found = prev.querySelector('.turn-content');
+    if(found) return found;
+  }
+  return null;
 }
 
 function renderTurn(m, idx){
@@ -1284,18 +1362,47 @@ function renderTurn(m, idx){
     inner = `<div class="turn-content" style="color:var(--text-tertiary); font-style:italic;">(empty message)</div>`;
   }
 
-  // Version switcher for edited/regenerated messages (parent_message_uuid siblings).
-  // Mirrors claude.ai's "‹ 2/3 ›" control that appears under a message once you've
-  // edited it or regenerated a response.
-  let branchHtml = '';
-  if(m.branch && m.branch.siblingCount > 1){
+  // Message footer: date + action icons (regenerate/edit/copy) + version switcher,
+  // combined into one muted row directly beneath the message — matches claude.ai's
+  // actual per-message footer exactly, rather than the old floating switcher.
+  const dateLabel = m.created_at ? fmtShortDate(m.created_at) : '';
+  const hasBranch = m.branch && m.branch.siblingCount > 1;
+  const copyIcon = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15V5a2 2 0 012-2h10"/></svg>';
+  const editIcon = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>';
+  const regenIcon = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>';
+
+  let switcherHtml = '';
+  if(hasBranch){
     const b = m.branch;
     const dataAttr = esc(JSON.stringify(b.siblingPreviews)).replace(/'/g, '&#39;');
-    branchHtml = `
+    switcherHtml = `
       <div class="branch-switcher" data-branch-idx="${idx}" data-siblings='${dataAttr}' data-current="${b.siblingIndex}">
         <button class="bs-prev" ${b.siblingIndex <= 0 ? 'disabled' : ''} title="Previous version"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M15 18l-6-6 6-6"/></svg></button>
         <span class="bs-count">${b.siblingIndex+1}/${b.siblingCount}</span>
         <button class="bs-next" ${b.siblingIndex >= b.siblingCount-1 ? 'disabled' : ''} title="Next version"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M9 18l6-6-6-6"/></svg></button>
+      </div>`;
+  }
+
+  const copyBtn = `<button class="mf-icon-btn mf-copy" data-copy-idx="${idx}" title="Copy">${copyIcon}</button>`;
+
+  let footerHtml;
+  if(m.sender === 'human'){
+    // date ... edit  copy  |  switcher   (right-aligned, matching the real UI)
+    footerHtml = `
+      <div class="msg-footer">
+        ${dateLabel ? `<span class="mf-date">${esc(dateLabel)}</span>` : ''}
+        <button class="mf-icon-btn mf-edit" title="Edit">${editIcon}</button>
+        ${copyBtn}
+        ${hasBranch ? `<span class="mf-sep"></span>${switcherHtml}` : ''}
+      </div>`;
+  } else {
+    // date  regenerate  copy  |  switcher   (left-aligned under the avatar column)
+    footerHtml = `
+      <div class="msg-footer">
+        ${dateLabel ? `<span class="mf-date">${esc(dateLabel)}</span>` : ''}
+        <button class="mf-icon-btn mf-regen" title="Regenerate">${regenIcon}</button>
+        ${copyBtn}
+        ${hasBranch ? `<span class="mf-sep"></span>${switcherHtml}` : ''}
       </div>`;
   }
 
@@ -1311,24 +1418,28 @@ function renderTurn(m, idx){
       const collapseId = `hc-${idx}`;
       return `
       <div class="turn human" data-idx="${idx}">
-        <div class="turn-inner">
-          <div class="human-msg-collapse" id="${collapseId}">
-            ${inner}
+        <div class="turn-col">
+          <div class="turn-inner">
+            <div class="human-msg-collapse" id="${collapseId}">
+              ${inner}
+            </div>
+            <button class="show-more-btn" data-collapse-target="${collapseId}">
+              <span class="smb-label">Show more</span>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M6 9l6 6 6-6"/></svg>
+            </button>
           </div>
-          <button class="show-more-btn" data-collapse-target="${collapseId}">
-            <span class="smb-label">Show more</span>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M6 9l6 6 6-6"/></svg>
-          </button>
+          ${footerHtml}
         </div>
-        ${branchHtml}
       </div>`;
     }
     return `
       <div class="turn human" data-idx="${idx}">
-        <div class="turn-inner">
-          ${inner}
+        <div class="turn-col">
+          <div class="turn-inner">
+            ${inner}
+          </div>
+          ${footerHtml}
         </div>
-        ${branchHtml}
       </div>`;
   }
 
@@ -1338,10 +1449,10 @@ function renderTurn(m, idx){
         <div class="claude-avatar"><svg viewBox="0 0 24 24" fill="none"><path d="M12 3L4 20h4l1.5-3.5h5L16 20h4L12 3z" fill="currentColor"/></svg></div>
         <div class="assistant-body">
           ${inner}
-          ${branchHtml}
         </div>
       </div>
-    </div>`;
+    </div>
+    ${footerHtml}`;
 }
 
 const findBar = $('#findBar');
