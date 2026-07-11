@@ -189,6 +189,24 @@ details.howto code{background:var(--bg-sidebar); padding:1px 5px; border-radius:
 .show-more-btn svg{width:13px; height:13px; transition:transform .15s;}
 .show-more-btn.expanded svg{transform:rotate(180deg);}
 .show-more-btn:hover{color:var(--accent);}
+
+.branch-switcher{
+  display:inline-flex; align-items:center; gap:2px;
+  margin-top:8px;
+  font-size:11.5px; color:var(--text-tertiary);
+  font-family:var(--mono);
+}
+.turn.human .branch-switcher{ justify-content:flex-end; width:100%; }
+.branch-switcher button{
+  display:flex; align-items:center; justify-content:center;
+  width:20px; height:20px; border-radius:5px;
+  background:none; border:none; cursor:pointer; color:var(--text-tertiary);
+  transition:background .12s, color .12s;
+}
+.branch-switcher button:hover:not(:disabled){ background:var(--bg-sidebar-hover); color:var(--text-primary); }
+.branch-switcher button:disabled{ opacity:0.3; cursor:default; }
+.branch-switcher button svg{width:13px; height:13px;}
+.branch-switcher .bs-count{ padding:0 4px; min-width:32px; text-align:center; user-select:none; }
 .turn.assistant .turn-inner{ display:flex; gap:14px; width:100%; max-width:100%; }
 .claude-avatar{ width:28px; height:28px; border-radius:8px; flex-shrink:0; background:var(--accent); display:flex; align-items:center; justify-content:center; margin-top:2px; }
 .claude-avatar svg{width:16px; height:16px; color:#fff;}
@@ -664,12 +682,93 @@ function normalizeConversation(raw){
       .sort((a,b)=> (a.message.create_time||0) - (b.message.create_time||0))
       .map(n => n.message);
   }
+  rawMsgs = rawMsgs || [];
 
   let model = raw.model || null;
-  const messages = (rawMsgs || []).map(m => normalizeMessage(m)).filter(Boolean);
+
+  // ---- Branch/tree reconstruction ----
+  // Claude stores a conversation as a tree via parent_message_uuid: editing a human
+  // message or regenerating an assistant reply creates a NEW sibling node under the
+  // same parent rather than continuing the list. If we naively flatten chat_messages
+  // in array order, every edit/regeneration shows up as its own extra message,
+  // which looks like duplicated or fractured conversation turns.
+  //
+  // We rebuild parent -> [children] links, then walk a single path from the root to
+  // a leaf, at each branch point picking the sibling with the latest created_at
+  // (matching what claude.ai itself displays after an edit/regen: the newest
+  // version). Every step along the path still records its sibling group so the UI
+  // can offer a "‹ 2/3 ›" version switcher, exactly like the real product.
+  const hasTreeShape = rawMsgs.some(m => m && (m.parent_message_uuid !== undefined));
+
+  let orderedRaw;
+  let branchInfoByUuid = {}; // uuid -> {siblings:[uuid...], index}
+
+  if(hasTreeShape && rawMsgs.every(m => m && m.uuid)){
+    const byId = {};
+    rawMsgs.forEach(m => { byId[m.uuid] = m; });
+    const childrenOf = {}; // parentKey -> [uuid,...] in original order
+    const ROOT = '__root__';
+    rawMsgs.forEach(m => {
+      const p = (m.parent_message_uuid && byId[m.parent_message_uuid]) ? m.parent_message_uuid : ROOT;
+      (childrenOf[p] = childrenOf[p] || []).push(m.uuid);
+    });
+    Object.values(childrenOf).forEach(list => {
+      list.sort((a,b) => new Date(byId[a].created_at||0) - new Date(byId[b].created_at||0));
+    });
+
+    orderedRaw = [];
+    let cursor = ROOT;
+    while(childrenOf[cursor] && childrenOf[cursor].length){
+      const siblings = childrenOf[cursor];
+      // Pick the latest-created sibling as the "live" branch (matches claude.ai
+      // showing the most recent edit/regeneration by default).
+      let chosen = siblings[0];
+      siblings.forEach(u => {
+        if(new Date(byId[u].created_at||0) >= new Date(byId[chosen].created_at||0)) chosen = u;
+      });
+      const idx = siblings.indexOf(chosen);
+      branchInfoByUuid[chosen] = {
+        siblingCount: siblings.length,
+        siblingIndex: idx,
+        siblingUuids: siblings.slice(),
+        // Snapshot enough of each sibling to switch into it later without
+        // re-walking the tree (title/preview built lazily from raw text).
+        siblingPreviews: siblings.map(u => ({
+          uuid: u,
+          text: typeof byId[u].text === 'string' ? byId[u].text : extractPlainTextForPreview(byId[u]),
+          created_at: byId[u].created_at || null
+        }))
+      };
+      orderedRaw.push(byId[chosen]);
+      cursor = chosen;
+    }
+  } else {
+    // No tree shape available (older export, or already-flattened data) — fall
+    // back to trusting array order as-is, same as before.
+    orderedRaw = rawMsgs;
+  }
+
+  const messages = orderedRaw.map(m => {
+    const norm = normalizeMessage(m);
+    if(norm && m && m.uuid && branchInfoByUuid[m.uuid]){
+      norm.branch = branchInfoByUuid[m.uuid];
+    }
+    return norm;
+  }).filter(Boolean);
+
   if(!model){ for(const m of messages){ if(m.model){ model = m.model; break; } } }
 
   return { id, name, created_at, updated_at, model, messages };
+}
+
+function extractPlainTextForPreview(m){
+  if(!m) return '';
+  if(typeof m.text === 'string' && m.text) return m.text;
+  if(Array.isArray(m.content)){
+    const t = m.content.find(b => b && b.type === 'text' && b.text);
+    if(t) return t.text;
+  }
+  return '';
 }
 
 function normalizeMessage(m){
@@ -1074,6 +1173,28 @@ function renderTranscript(c){
       }).catch(()=>{ toast('Copy failed — select the text manually'); });
     });
   });
+  $all('.branch-switcher').forEach(sw=>{
+    let siblings = [];
+    try{ siblings = JSON.parse(sw.dataset.siblings); }catch(e){ siblings = []; }
+    let current = parseInt(sw.dataset.current, 10) || 0;
+
+    function renderSibling(){
+      const turn = sw.closest('.turn');
+      const contentEl = turn.querySelector('.turn-content');
+      if(contentEl && siblings[current]){
+        contentEl.innerHTML = renderMarkdown(siblings[current].text || '');
+      }
+      sw.querySelector('.bs-count').textContent = `${current+1}/${siblings.length}`;
+      sw.querySelector('.bs-prev').disabled = current <= 0;
+      sw.querySelector('.bs-next').disabled = current >= siblings.length - 1;
+    }
+    sw.querySelector('.bs-prev').addEventListener('click', ()=>{
+      if(current > 0){ current--; renderSibling(); }
+    });
+    sw.querySelector('.bs-next').addEventListener('click', ()=>{
+      if(current < siblings.length - 1){ current++; renderSibling(); }
+    });
+  });
 }
 
 function renderTurn(m, idx){
@@ -1163,6 +1284,21 @@ function renderTurn(m, idx){
     inner = `<div class="turn-content" style="color:var(--text-tertiary); font-style:italic;">(empty message)</div>`;
   }
 
+  // Version switcher for edited/regenerated messages (parent_message_uuid siblings).
+  // Mirrors claude.ai's "‹ 2/3 ›" control that appears under a message once you've
+  // edited it or regenerated a response.
+  let branchHtml = '';
+  if(m.branch && m.branch.siblingCount > 1){
+    const b = m.branch;
+    const dataAttr = esc(JSON.stringify(b.siblingPreviews)).replace(/'/g, '&#39;');
+    branchHtml = `
+      <div class="branch-switcher" data-branch-idx="${idx}" data-siblings='${dataAttr}' data-current="${b.siblingIndex}">
+        <button class="bs-prev" ${b.siblingIndex <= 0 ? 'disabled' : ''} title="Previous version"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M15 18l-6-6 6-6"/></svg></button>
+        <span class="bs-count">${b.siblingIndex+1}/${b.siblingCount}</span>
+        <button class="bs-next" ${b.siblingIndex >= b.siblingCount-1 ? 'disabled' : ''} title="Next version"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M9 18l6-6-6-6"/></svg></button>
+      </div>`;
+  }
+
   if(m.sender === 'human'){
     // Claude's real UI collapses long pasted/typed user messages behind a
     // "Show more" toggle so a giant paste doesn't dominate the transcript.
@@ -1184,6 +1320,7 @@ function renderTurn(m, idx){
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M6 9l6 6 6-6"/></svg>
           </button>
         </div>
+        ${branchHtml}
       </div>`;
     }
     return `
@@ -1191,6 +1328,7 @@ function renderTurn(m, idx){
         <div class="turn-inner">
           ${inner}
         </div>
+        ${branchHtml}
       </div>`;
   }
 
@@ -1200,6 +1338,7 @@ function renderTurn(m, idx){
         <div class="claude-avatar"><svg viewBox="0 0 24 24" fill="none"><path d="M12 3L4 20h4l1.5-3.5h5L16 20h4L12 3z" fill="currentColor"/></svg></div>
         <div class="assistant-body">
           ${inner}
+          ${branchHtml}
         </div>
       </div>
     </div>`;
