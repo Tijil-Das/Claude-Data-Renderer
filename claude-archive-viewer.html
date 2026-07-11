@@ -139,12 +139,6 @@ details.howto code{background:var(--bg-sidebar); padding:1px 5px; border-radius:
 .ci-star{ width:13px; height:13px; cursor:pointer; opacity:0; flex-shrink:0; color:var(--accent); transition:opacity .12s; }
 .conv-item:hover .ci-star, .ci-star.starred{opacity:1;}
 .sb-empty{ padding:30px 16px; text-align:center; color:var(--text-tertiary); font-size:13px; }
-.sb-bottom{ border-top:1px solid var(--border); padding:10px 12px; flex-shrink:0; }
-.sb-user-row{ display:flex; align-items:center; gap:9px; padding:8px; border-radius:var(--radius-sm); cursor:pointer; }
-.sb-user-row:hover{background:var(--bg-sidebar-hover);}
-.sb-avatar{ width:26px; height:26px; border-radius:50%; background:var(--accent); color:#fff; display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:600; flex-shrink:0; }
-.sb-user-label{font-size:12.5px; color:var(--text-secondary); flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
-.sb-user-label b{color:var(--text-primary); font-weight:500; display:block; font-size:13px;}
 
 #main{ flex:1; display:flex; flex-direction:column; height:100%; min-width:0; background:var(--bg-main); }
 #topbar{ flex-shrink:0; height:52px; padding:0 20px; border-bottom:1px solid transparent; display:flex; align-items:center; justify-content:space-between; gap:16px; }
@@ -181,7 +175,7 @@ details.howto code{background:var(--bg-sidebar); padding:1px 5px; border-radius:
 .assistant-body{ flex:1; min-width:0; }
 .turn-time{ font-size:11px; color:var(--text-tertiary); margin-bottom:4px; }
 .turn.human .turn-time{ text-align:right; margin-bottom:4px; }
-.turn-content{ font-size:15.5px; line-height:1.65; color:var(--text-primary); }
+.turn-content{ font-size:16px; line-height:1.7; color:var(--text-primary); letter-spacing:-0.006em; }
 .turn-content > *:first-child{margin-top:0;}
 .turn-content > *:last-child{margin-bottom:0;}
 .turn-content p{margin:0 0 14px;}
@@ -232,6 +226,29 @@ details.howto code{background:var(--bg-sidebar); padding:1px 5px; border-radius:
 .tool-block-body{ display:none; border-top:1px solid var(--border); }
 .tool-block.open .tool-block-body{display:block;}
 .tool-block-body pre{ margin:0; border-radius:0; background:var(--code-bg); color:var(--code-text); padding:12px 15px; font-size:12px; line-height:1.55; overflow-x:auto; font-family:var(--mono); white-space:pre-wrap; word-break:break-word; }
+
+.unsupported-block{
+  display:flex; align-items:flex-start; gap:10px;
+  border:1px dashed var(--border);
+  background:var(--bg-sidebar);
+  border-radius:var(--radius-md);
+  padding:12px 14px; margin:6px 0 16px;
+  font-size:13px; line-height:1.55; color:var(--text-secondary);
+}
+.unsupported-block svg{width:16px; height:16px; color:var(--text-tertiary); flex-shrink:0; margin-top:1px;}
+.unsupported-block code{font-family:var(--mono); font-size:0.92em; background:var(--bg-input); padding:1px 5px; border-radius:4px;}
+
+.missing-artifact-card{
+  border:1px dashed var(--border); border-radius:var(--radius-md);
+  margin:8px 0 16px; padding:14px 16px;
+  background:var(--bg-sidebar);
+}
+.missing-artifact-head{
+  display:flex; align-items:center; gap:9px;
+  font-size:13.5px; color:var(--text-primary); font-weight:500; margin-bottom:5px;
+}
+.missing-artifact-head svg{width:16px; height:16px; color:var(--text-tertiary); flex-shrink:0;}
+.missing-artifact-note{ font-size:13px; color:var(--text-secondary); line-height:1.55; margin-left:25px; }
 mark.hl{background:#FCE4A8; color:#2D2A26; border-radius:2px; padding:0 1px;}
 [data-theme="dark"] mark.hl{background:#8A6A2A; color:#F5F1E8;}
 
@@ -343,12 +360,6 @@ mark.hl{background:#FCE4A8; color:#2D2A26; border-radius:2px; padding:0 1px;}
     </div>
     <div class="sb-section-label" id="sectionLabel">Chats</div>
     <div id="convList"></div>
-    <div class="sb-bottom">
-      <div class="sb-user-row">
-        <div class="sb-avatar" id="sbAvatarInitial">U</div>
-        <div class="sb-user-label"><b id="sbUserName">Your archive</b><span id="sbUserSub">Local export viewer</span></div>
-      </div>
-    </div>
   </aside>
 
   <main id="main">
@@ -634,39 +645,80 @@ function normalizeMessage(m){
   const sender = normalizeSender(m.sender || m.role || (m.author && m.author.role));
   const created_at = m.created_at || m.createdAt || m.create_time || null;
 
-  let textParts = [];
+  // `parts` preserves the ORIGINAL ORDER of everything in the message: text runs,
+  // tool calls/results, artifacts, thinking, and any unrecognized block types.
+  // This matters because a real Claude turn can interleave text -> tool call ->
+  // more text -> artifact, and flattening that into separate buckets (as an earlier
+  // version of this code did) silently reordered or dropped content.
+  let parts = [];
   let attachments = [];
-  let artifacts = [];
   let thinking = null;
-  let toolCalls = [];
+
+  function pushText(t){
+    if(t == null) return;
+    t = String(t);
+    if(!t) return;
+    const last = parts[parts.length-1];
+    if(last && last.kind === 'text'){ last.text += '\n\n' + t; }
+    else parts.push({kind:'text', text: t});
+  }
 
   if(typeof m.text === 'string' && m.text.trim()){
-    textParts.push(m.text);
+    pushText(m.text);
   }
 
   if(Array.isArray(m.content)){
     for(const block of m.content){
-      if(!block) continue;
+      if(block == null) continue;
+
+      if(typeof block === 'string'){ pushText(block); continue; }
+
       const type = block.type;
-      if(type === 'text' && block.text){
-        textParts.push(block.text);
+
+      if(type === 'text'){
+        pushText(block.text);
       } else if(type === 'thinking' || type === 'reasoning'){
         thinking = (thinking?thinking+'\n\n':'') + (block.thinking || block.text || '');
+      } else if((type === 'tool_use' || type === 'server_tool_use') && block.name === 'artifacts'){
+        // Claude's export commonly records artifact creation/updates as a tool_use
+        // call named "artifacts" (command: create/update/rewrite) but the actual
+        // rendered artifact body is usually NOT included in conversations.json —
+        // only the metadata (id, title, type, command) is. Surface that plainly
+        // rather than showing empty content or a generic tool-call block.
+        const inp = block.input || block.tool_input || {};
+        const hasBody = typeof inp.content === 'string' && inp.content.length > 0;
+        if(hasBody){
+          parts.push({kind:'artifact', title: inp.title || inp.id || 'Artifact', language: inp.type || inp.language || '', content: inp.content});
+        } else {
+          parts.push({kind:'missing-artifact', title: inp.title || inp.id || 'Untitled artifact', command: inp.command || 'create', artifactType: inp.type || ''});
+        }
       } else if(type === 'tool_use' || type === 'server_tool_use'){
-        toolCalls.push({name: block.name || 'tool', input: block.input || block.tool_input || null, kind:'call'});
+        parts.push({kind:'tool', toolKind:'call', name: block.name || 'tool', input: block.input || block.tool_input || null});
       } else if(type === 'tool_result'){
-        toolCalls.push({name: block.name || 'result', input: block.content || block.output || null, kind:'result'});
+        parts.push({kind:'tool', toolKind:'result', name: block.name || 'result', input: block.content || block.output || null});
       } else if(type === 'artifact' || block.artifact){
         const art = block.artifact || block;
-        artifacts.push({
-          title: art.title || art.name || 'Artifact',
-          language: art.language || art.type || '',
-          content: art.content || art.text || ''
-        });
+        const content = art.content || art.text || '';
+        if(content){
+          parts.push({kind:'artifact', title: art.title || art.name || 'Artifact', language: art.language || art.type || '', content});
+        } else {
+          parts.push({kind:'missing-artifact', title: art.title || art.name || 'Untitled artifact', command:'create', artifactType: art.language || art.type || ''});
+        }
       } else if(type === 'image'){
         attachments.push({type:'image', name: block.name || 'image', url: block.url || null});
-      } else if(typeof block === 'string'){
-        textParts.push(block);
+      } else {
+        // Unknown / unsupported block type (e.g. an interactive widget the export
+        // can't serialize, such as a weather card or recipe card). Anthropic's own
+        // export sometimes stores these as a literal placeholder string rather than
+        // structured data. Never silently drop it — surface it as a clearly labeled
+        // unsupported-content notice instead of leaking raw placeholder text into
+        // the message body or losing it entirely.
+        const fallbackText = (typeof block.text === 'string' && block.text) ? block.text : null;
+        if(fallbackText && !/not supported on your current device/i.test(fallbackText)){
+          pushText(fallbackText);
+        } else {
+          parts.push({kind:'unsupported', blockType: type || 'unknown'});
+        }
       }
     }
   }
@@ -686,21 +738,32 @@ function normalizeMessage(m){
 
   if(Array.isArray(m.artifacts)){
     for(const art of m.artifacts){
-      artifacts.push({
-        title: art.title || art.name || 'Artifact',
-        language: art.language || art.type || '',
-        content: art.content || art.text || ''
-      });
+      parts.push({kind:'artifact', title: art.title || art.name || 'Artifact', language: art.language || art.type || '', content: art.content || art.text || ''});
     }
   }
 
-  const text = textParts.join('\n\n').trim();
+  // Strip stray placeholder text ("This block is not supported on your current
+  // device yet.") that can appear INSIDE an otherwise normal text block, e.g. when
+  // Claude's own client appended it next to an unrenderable inline widget. We only
+  // strip the exact known placeholder, never arbitrary user/assistant content.
+  const PLACEHOLDER_RE = /This block is not supported on your current device yet\.?/gi;
+  parts.forEach(p=>{
+    if(p.kind === 'text'){
+      p.text = p.text.replace(PLACEHOLDER_RE, '').replace(/\n{3,}/g, '\n\n').trim();
+    }
+  });
+  parts = parts.filter(p => !(p.kind === 'text' && !p.text));
 
-  if(!text && attachments.length === 0 && artifacts.length === 0 && !thinking && toolCalls.length === 0){
+  if(parts.length === 0 && attachments.length === 0 && !thinking){
     return null;
   }
 
-  return { sender, created_at, text, attachments, artifacts, thinking, toolCalls, model: m.model || null };
+  // Back-compat aggregate fields (used by search, export-to-md/txt, etc.)
+  const text = parts.filter(p=>p.kind==='text').map(p=>p.text).join('\n\n').trim();
+  const artifacts = parts.filter(p=>p.kind==='artifact');
+  const toolCalls = parts.filter(p=>p.kind==='tool').map(p=>({name:p.name, input:p.input, kind:p.toolKind}));
+
+  return { sender, created_at, text, parts, attachments, artifacts, thinking, toolCalls, model: m.model || null };
 }
 
 function normalizeSender(s){
@@ -982,51 +1045,67 @@ function renderTurn(m, idx){
       </div>`;
   }
 
-  if(m.text){
-    inner += `<div class="turn-content">${renderMarkdown(m.text)}</div>`;
-  }
+  // Walk parts in the ORIGINAL order they appeared in the export so interleaved
+  // text / tool calls / artifacts render in the same sequence Claude produced them,
+  // instead of being bucketed and reflowed (which was corrupting/reordering turns).
+  const parts = (m.parts && m.parts.length) ? m.parts : (m.text ? [{kind:'text', text:m.text}] : []);
 
-  if(m.artifacts && m.artifacts.length){
-    m.artifacts.forEach(art=>{
-      const isCode = art.language && !['markdown','md','text','txt',''].includes(art.language.toLowerCase());
+  parts.forEach((p, pIdx) => {
+    if(p.kind === 'text'){
+      inner += `<div class="turn-content">${renderMarkdown(p.text)}</div>`;
+
+    } else if(p.kind === 'artifact'){
+      const isCode = p.language && !['markdown','md','text','txt',''].includes(p.language.toLowerCase());
       inner += `
         <div class="artifact-card">
           <div class="artifact-head">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 9h6v6H9z"/></svg>
-            ${esc(art.title)}
-            <span class="at-type">${esc(art.language || 'artifact')}</span>
+            ${esc(p.title)}
+            <span class="at-type">${esc(p.language || 'artifact')}</span>
           </div>
           <div class="artifact-body ${isCode?'':'text-artifact'}">
-            ${isCode ? `<div class="code-block-wrap"><pre><code>${esc(art.content)}</code></pre></div>` : esc(art.content)}
+            ${isCode ? `<div class="code-block-wrap"><pre><code>${esc(p.content)}</code></pre></div>` : esc(p.content)}
           </div>
         </div>`;
-    });
-  }
 
-  if(m.toolCalls && m.toolCalls.length){
-    m.toolCalls.forEach((tc, tcIdx)=>{
+    } else if(p.kind === 'tool'){
       let inputStr = '';
-      try{
-        inputStr = typeof tc.input === 'string' ? tc.input : JSON.stringify(tc.input, null, 2);
-      }catch(e){ inputStr = String(tc.input); }
-      const isResult = tc.kind === 'result';
+      try{ inputStr = typeof p.input === 'string' ? p.input : JSON.stringify(p.input, null, 2); }catch(e){ inputStr = String(p.input); }
+      const isResult = p.toolKind === 'result';
       const label = isResult ? 'Result from' : 'Tool call';
       const iconPath = isResult
         ? '<path d="M20 6L9 17l-5-5"/>'
         : '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/>';
       inner += `
-        <div class="tool-block" data-tool-idx="${idx}-${tcIdx}">
+        <div class="tool-block" data-tool-idx="${idx}-${pIdx}">
           <div class="tool-block-head">
             <svg class="tb-caret" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M9 18l6-6-6-6"/></svg>
             <svg class="tb-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">${iconPath}</svg>
             <span class="tb-label">${label}</span>
-            <span class="tb-name">${esc(tc.name)}</span>
+            <span class="tb-name">${esc(p.name)}</span>
             <span class="tb-kind">${isResult ? 'result' : 'call'}</span>
           </div>
           ${inputStr ? `<div class="tool-block-body"><pre>${esc(inputStr)}</pre></div>` : ''}
         </div>`;
-    });
-  }
+
+    } else if(p.kind === 'missing-artifact'){
+      inner += `
+        <div class="missing-artifact-card">
+          <div class="missing-artifact-head">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 9h6v6H9z"/></svg>
+            ${esc(p.title)}${p.artifactType ? ` <span class="at-type" style="margin-left:6px;">${esc(p.artifactType)}</span>` : ''}
+          </div>
+          <div class="missing-artifact-note">Claude's data export doesn't include the full content of artifacts — only that one was ${p.command === 'create' ? 'created' : 'updated'} here. Open the original chat in Claude to view it.</div>
+        </div>`;
+
+    } else if(p.kind === 'unsupported'){
+      inner += `
+        <div class="unsupported-block">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><path d="M12 9v4M12 17h.01"/></svg>
+          <span>This turn contained a <code>${esc(p.blockType)}</code> block (e.g. an interactive widget) that isn't supported in this viewer. The rest of the turn is shown above/below.</span>
+        </div>`;
+    }
+  });
 
   if(m.attachments && m.attachments.length){
     m.attachments.forEach(a=>{
